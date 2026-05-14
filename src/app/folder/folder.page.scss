@@ -30,3 +30,60 @@ ion-menu-button {
   letter-spacing: 0;
   text-transform: uppercase;
 }
+
+.search-panel {
+  padding: 12px 12px 4px;
+}
+
+.search-panel ion-searchbar {
+  padding-inline: 0;
+}
+
+.search-panel ion-segment {
+  margin-top: 4px;
+}
+
+.flag-filter-list,
+.search-results {
+  background: transparent;
+}
+
+.flag-filter-list {
+  margin-top: 8px;
+}
+
+.result-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.result-heading h2 {
+  margin: 0;
+}
+
+.result-context {
+  color: var(--ion-color-medium-shade);
+}
+
+.result-match {
+  margin-top: 4px;
+}
+
+.empty-search-state {
+  max-width: 560px;
+  padding: 24px;
+}
+
+.empty-search-state h1 {
+  margin: 0 0 12px;
+  font-size: 26px;
+  font-weight: 700;
+}
+
+.empty-search-state p {
+  margin: 0;
+  color: var(--ion-color-medium-shade);
+  line-height: 1.5;
+}

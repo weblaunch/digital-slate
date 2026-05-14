@@ -1,5 +1,5 @@
 import { Component, OnInit, inject } from '@angular/core';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { AlertController } from '@ionic/angular';
 
 import {
@@ -67,6 +67,7 @@ export class HierarchyPage implements OnInit {
   private slate_scene: SlateScene | null = null;
 
   private route = inject(ActivatedRoute);
+  private router = inject(Router);
   private alert_controller = inject(AlertController);
   private database = inject(SlateDatabaseService);
   private slate_events = inject(SlateEventService);
@@ -370,6 +371,10 @@ export class HierarchyPage implements OnInit {
     this.slate_scene = slate_scene_id ? await this.database.get_slate_scene(slate_scene_id) : null;
     this.flags = await this.database.list_flags();
 
+    if (await this.prompt_for_current_shoot_day()) {
+      return;
+    }
+
     if (this.level === 'shoot_days' && project_id) {
       this.items = await this.database.list_shoot_days(project_id);
     } else if (this.level === 'slates' && shoot_day_id) {
@@ -385,6 +390,70 @@ export class HierarchyPage implements OnInit {
     this.set_page_copy();
     this.set_breadcrumbs();
     this.loading = false;
+  }
+
+  private async prompt_for_current_shoot_day(): Promise<boolean> {
+    if (this.level === 'shoot_days' || !this.project || !this.shoot_day) {
+      return false;
+    }
+
+    const today = today_date();
+    if (this.shoot_day.date === today) {
+      return false;
+    }
+
+    const warning_key = `digital-slate-date-warning:${this.shoot_day.shoot_day_id}:${today}`;
+    if (sessionStorage.getItem(warning_key) === 'continue') {
+      return false;
+    }
+
+    this.loading = false;
+
+    let create_new_date = false;
+    const alert = await this.alert_controller.create({
+      header: 'Selected date is not today',
+      message: `You are working in ${format_display_date(this.shoot_day?.date)}, but today is ${format_display_date(today)}. Do you want to continue here or create today's date?`,
+      backdropDismiss: false,
+      buttons: [
+        {
+          text: 'Continue',
+          role: 'cancel',
+          handler: () => {
+            sessionStorage.setItem(warning_key, 'continue');
+          },
+        },
+        {
+          text: 'Create New Date',
+          handler: () => {
+            create_new_date = true;
+          },
+        },
+      ],
+    });
+
+    await alert.present();
+    await alert.onDidDismiss();
+
+    if (!create_new_date) {
+      return false;
+    }
+
+    const shoot_day_id = await this.get_or_create_today_shoot_day(today);
+    await this.router.navigate(['/projects', this.project.project_id, 'shoot-days', shoot_day_id, 'slates']);
+    return true;
+  }
+
+  private async get_or_create_today_shoot_day(today: string): Promise<string> {
+    const existing = await this.database.get_shoot_day_by_date(this.project!.project_id, today);
+    if (existing) {
+      return existing.shoot_day_id;
+    }
+
+    return this.database.create_shoot_day({
+      project_id: this.project!.project_id,
+      date: today,
+      location: this.shoot_day?.location ?? '',
+    });
   }
 
   private set_breadcrumbs(): void {
@@ -688,7 +757,14 @@ export class HierarchyPage implements OnInit {
   }
 }
 
-const today_date = (): string => new Date().toISOString().slice(0, 10);
+const today_date = (): string => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = `${now.getMonth() + 1}`.padStart(2, '0');
+  const day = `${now.getDate()}`.padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+};
 
 const format_display_date = (date: string | null | undefined): string => {
   if (!date) {

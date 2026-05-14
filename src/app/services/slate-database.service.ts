@@ -88,6 +88,24 @@ export interface Flag {
   updated_at: string;
 }
 
+export type SearchResultType = 'project' | 'shoot_day' | 'slate' | 'scene' | 'take';
+export type SearchFilterType = 'all' | SearchResultType | 'flag';
+
+export interface SearchResult {
+  result_type: SearchResultType;
+  title: string;
+  subtitle: string | null;
+  context: string | null;
+  matched_text: string | null;
+  project_id: string | null;
+  shoot_day_id: string | null;
+  slate_id: string | null;
+  slate_scene_id: string | null;
+  take_id: string | null;
+  flag_ids?: string | null;
+  flags?: string | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class SlateDatabaseService {
   private sqlite = new SQLiteConnection(CapacitorSQLite);
@@ -190,14 +208,15 @@ export class SlateDatabaseService {
     project_id: string;
     date: string;
     location?: string | null;
-  }): Promise<void> {
+  }): Promise<string> {
     const now = timestamp();
+    const shoot_day_id = create_id('shoot_day');
     await this.run(
       `INSERT INTO shoot_day (
         shoot_day_id, project_id, date, location, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?)`,
       [
-        create_id('shoot_day'),
+        shoot_day_id,
         input.project_id,
         input.date,
         empty_to_null(input.location),
@@ -205,6 +224,7 @@ export class SlateDatabaseService {
         now,
       ],
     );
+    return shoot_day_id;
   }
 
   async update_shoot_day(input: {
@@ -230,6 +250,17 @@ export class SlateDatabaseService {
 
   async get_shoot_day(shoot_day_id: string): Promise<ShootDay | null> {
     return this.query_one<ShootDay>('SELECT * FROM shoot_day WHERE shoot_day_id = ?', [shoot_day_id]);
+  }
+
+  async get_shoot_day_by_date(project_id: string, date: string): Promise<ShootDay | null> {
+    return this.query_one<ShootDay>(
+      `SELECT *
+       FROM shoot_day
+       WHERE project_id = ? AND date = ?
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [project_id, date],
+    );
   }
 
   async list_slates(shoot_day_id: string): Promise<Slate[]> {
@@ -524,6 +555,50 @@ export class SlateDatabaseService {
     return flag;
   }
 
+  async search(input: {
+    query: string;
+    result_type?: SearchFilterType;
+    flag_id?: string;
+  }): Promise<SearchResult[]> {
+    const query_text = input.query.trim();
+    const result_type = input.result_type ?? 'all';
+    const flag_id = input.flag_id?.trim() || '';
+
+    if (!query_text && !flag_id) {
+      return [];
+    }
+
+    const like = `%${escape_like(query_text)}%`;
+    const results: SearchResult[] = [];
+
+    if ((result_type === 'all' || result_type === 'project') && query_text) {
+      results.push(...await this.search_projects(like));
+    }
+
+    if ((result_type === 'all' || result_type === 'shoot_day') && query_text) {
+      results.push(...await this.search_shoot_days(like));
+    }
+
+    if ((result_type === 'all' || result_type === 'slate') && query_text) {
+      results.push(...await this.search_slates(like));
+    }
+
+    if ((result_type === 'all' || result_type === 'scene') && query_text) {
+      results.push(...await this.search_scenes(like));
+    }
+
+    if (result_type === 'all' || result_type === 'take' || result_type === 'flag') {
+      results.push(...await this.search_takes({
+        like,
+        has_query: Boolean(query_text),
+        flag_id,
+        match_flags_only: result_type === 'flag',
+      }));
+    }
+
+    return results;
+  }
+
   async get_next_take_number(slate_scene_id: string): Promise<number> {
     const row = await this.query_one<{ next_take_number: number }>(
       `SELECT COALESCE(MAX(take_number), 0) + 1 AS next_take_number
@@ -733,6 +808,178 @@ export class SlateDatabaseService {
     await this.save_if_web();
   }
 
+  private async search_projects(like: string): Promise<SearchResult[]> {
+    return this.query<SearchResult>(`
+      SELECT
+        'project' AS result_type,
+        p.name AS title,
+        NULLIF(TRIM(COALESCE(p.director, '') || ' ' || COALESCE(p.dop, '') || ' ' || COALESCE(p.camera_op, '')), '') AS subtitle,
+        NULL AS context,
+        NULLIF(TRIM(COALESCE(p.director, '') || ' ' || COALESCE(p.dop, '') || ' ' || COALESCE(p.camera_op, '')), '') AS matched_text,
+        p.project_id,
+        NULL AS shoot_day_id,
+        NULL AS slate_id,
+        NULL AS slate_scene_id,
+        NULL AS take_id,
+        NULL AS flag_ids,
+        NULL AS flags
+      FROM project p
+      WHERE
+        p.name LIKE ? ESCAPE '\\'
+        OR p.director LIKE ? ESCAPE '\\'
+        OR p.dop LIKE ? ESCAPE '\\'
+        OR p.camera_op LIKE ? ESCAPE '\\'
+      ORDER BY p.updated_at DESC, p.name COLLATE NOCASE ASC
+      LIMIT 25
+    `, [like, like, like, like]);
+  }
+
+  private async search_shoot_days(like: string): Promise<SearchResult[]> {
+    return this.query<SearchResult>(`
+      SELECT
+        'shoot_day' AS result_type,
+        sd.date AS title,
+        sd.location AS subtitle,
+        p.name AS context,
+        sd.location AS matched_text,
+        p.project_id,
+        sd.shoot_day_id,
+        NULL AS slate_id,
+        NULL AS slate_scene_id,
+        NULL AS take_id,
+        NULL AS flag_ids,
+        NULL AS flags
+      FROM shoot_day sd
+      JOIN project p ON p.project_id = sd.project_id
+      WHERE
+        sd.date LIKE ? ESCAPE '\\'
+        OR sd.location LIKE ? ESCAPE '\\'
+      ORDER BY sd.date DESC, sd.created_at DESC
+      LIMIT 25
+    `, [like, like]);
+  }
+
+  private async search_slates(like: string): Promise<SearchResult[]> {
+    return this.query<SearchResult>(`
+      SELECT
+        'slate' AS result_type,
+        s.camera AS title,
+        sd.date AS subtitle,
+        p.name AS context,
+        s.camera AS matched_text,
+        p.project_id,
+        sd.shoot_day_id,
+        s.slate_id,
+        NULL AS slate_scene_id,
+        NULL AS take_id,
+        NULL AS flag_ids,
+        NULL AS flags
+      FROM slate s
+      JOIN shoot_day sd ON sd.shoot_day_id = s.shoot_day_id
+      JOIN project p ON p.project_id = sd.project_id
+      WHERE s.camera LIKE ? ESCAPE '\\'
+      ORDER BY sd.date DESC, s.camera COLLATE NOCASE ASC
+      LIMIT 25
+    `, [like]);
+  }
+
+  private async search_scenes(like: string): Promise<SearchResult[]> {
+    return this.query<SearchResult>(`
+      SELECT
+        'scene' AS result_type,
+        sc.scene_name AS title,
+        NULLIF(TRIM(COALESCE(sc.location, '') || ' ' || COALESCE(sc.time_of_day, '')), '') AS subtitle,
+        p.name || ' > ' || sd.date || ' > ' || s.camera AS context,
+        NULLIF(TRIM(COALESCE(sc.location, '') || ' ' || COALESCE(sc.time_of_day, '') || ' ' || COALESCE(sc.notes, '')), '') AS matched_text,
+        p.project_id,
+        sd.shoot_day_id,
+        s.slate_id,
+        ss.slate_scene_id,
+        NULL AS take_id,
+        NULL AS flag_ids,
+        NULL AS flags
+      FROM slate_scene ss
+      JOIN scene sc ON sc.scene_id = ss.scene_id
+      JOIN slate s ON s.slate_id = ss.slate_id
+      JOIN shoot_day sd ON sd.shoot_day_id = s.shoot_day_id
+      JOIN project p ON p.project_id = sd.project_id
+      WHERE ss.active = 1
+        AND (
+          sc.scene_name LIKE ? ESCAPE '\\'
+          OR sc.location LIKE ? ESCAPE '\\'
+          OR sc.time_of_day LIKE ? ESCAPE '\\'
+          OR sc.notes LIKE ? ESCAPE '\\'
+        )
+      ORDER BY sd.date DESC, ss.scene_order ASC, sc.scene_name COLLATE NOCASE ASC
+      LIMIT 40
+    `, [like, like, like, like]);
+  }
+
+  private async search_takes(input: {
+    like: string;
+    has_query: boolean;
+    flag_id: string;
+    match_flags_only: boolean;
+  }): Promise<SearchResult[]> {
+    const query_filter = input.has_query
+      ? input.match_flags_only
+        ? `AND f.label LIKE ? ESCAPE '\\'`
+        : `AND (
+          CAST(t.take_number AS TEXT) LIKE ? ESCAPE '\\'
+          OR t.slate_open_timecode LIKE ? ESCAPE '\\'
+          OR t.slate_close_timecode LIKE ? ESCAPE '\\'
+          OR t.notes LIKE ? ESCAPE '\\'
+          OR f.label LIKE ? ESCAPE '\\'
+        )`
+      : '';
+    const flag_filter = input.flag_id
+      ? `AND EXISTS (
+        SELECT 1
+        FROM take_flag selected_tf
+        WHERE selected_tf.take_id = t.take_id
+        AND selected_tf.flag_id = ?
+      )`
+      : '';
+    const query_values = input.has_query
+      ? input.match_flags_only
+        ? [input.like]
+        : [input.like, input.like, input.like, input.like, input.like]
+      : [];
+    const values = [
+      ...query_values,
+      ...(input.flag_id ? [input.flag_id] : []),
+    ];
+
+    return this.query<SearchResult>(`
+      SELECT
+        'take' AS result_type,
+        'Take ' || t.take_number AS title,
+        NULLIF(TRIM(COALESCE(t.slate_close_timecode, '') || ' ' || COALESCE(GROUP_CONCAT(DISTINCT f.label), '')), '') AS subtitle,
+        p.name || ' > ' || sd.date || ' > ' || s.camera || ' > ' || sc.scene_name AS context,
+        t.notes AS matched_text,
+        p.project_id,
+        sd.shoot_day_id,
+        s.slate_id,
+        ss.slate_scene_id,
+        t.take_id,
+        GROUP_CONCAT(DISTINCT f.flag_id) AS flag_ids,
+        GROUP_CONCAT(DISTINCT f.label) AS flags
+      FROM take t
+      JOIN slate_scene ss ON ss.slate_scene_id = t.slate_scene_id
+      JOIN scene sc ON sc.scene_id = ss.scene_id
+      JOIN slate s ON s.slate_id = t.slate_id
+      JOIN shoot_day sd ON sd.shoot_day_id = t.shoot_day_id
+      JOIN project p ON p.project_id = sd.project_id
+      LEFT JOIN take_flag tf ON tf.take_id = t.take_id
+      LEFT JOIN flag f ON f.flag_id = tf.flag_id
+      WHERE 1 = 1
+        ${query_filter}
+        ${flag_filter}
+      GROUP BY t.take_id
+      ORDER BY sd.date DESC, t.take_number DESC
+      LIMIT 60
+    `, values);
+  }
 
   private async next_scene_order(slate_id: string): Promise<number> {
     const row = await this.query_one<{ next_order: number }>(
@@ -774,6 +1021,8 @@ const empty_to_null = (value: string | null | undefined): string | null => {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
 };
+
+const escape_like = (value: string): string => value.replace(/[\\%_]/g, (match) => `\\${match}`);
 
 const create_id = (prefix: string): string => {
   const random_id = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;

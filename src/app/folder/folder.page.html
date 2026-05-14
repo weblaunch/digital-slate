@@ -14,9 +14,104 @@
     </ion-toolbar>
   </ion-header>
 
-  <section class="section-page">
-    <p class="section-kicker">Digital Slate</p>
-    <h1>{{ page_title }}</h1>
-    <p>{{ page_summary }}</p>
-  </section>
+  @if (folder === 'search') {
+    <section class="search-panel">
+      <ion-searchbar
+        [(ngModel)]="search_query"
+        placeholder="Search notes, scenes, takes, timecode..."
+        debounce="250"
+        (ionInput)="run_search()"
+        (ionClear)="clear_search()"
+      ></ion-searchbar>
+
+      <ion-segment [(ngModel)]="search_type" scrollable="true" (ionChange)="run_search()">
+        <ion-segment-button value="all">
+          <ion-label>All</ion-label>
+        </ion-segment-button>
+        <ion-segment-button value="flag">
+          <ion-label>Flags</ion-label>
+        </ion-segment-button>
+        <ion-segment-button value="project">
+          <ion-label>Projects</ion-label>
+        </ion-segment-button>
+        <ion-segment-button value="shoot_day">
+          <ion-label>Days</ion-label>
+        </ion-segment-button>
+        <ion-segment-button value="slate">
+          <ion-label>Slates</ion-label>
+        </ion-segment-button>
+        <ion-segment-button value="scene">
+          <ion-label>Scenes</ion-label>
+        </ion-segment-button>
+        <ion-segment-button value="take">
+          <ion-label>Takes</ion-label>
+        </ion-segment-button>
+      </ion-segment>
+
+      <ion-list class="flag-filter-list">
+        <ion-item>
+          <ion-select
+            label="Flag"
+            labelPlacement="stacked"
+            interface="popover"
+            name="search_flag"
+            [(ngModel)]="search_flag_id"
+            (ionChange)="run_search()"
+          >
+            <ion-select-option value="">Any flag</ion-select-option>
+            @for (flag of flags; track flag.flag_id) {
+              <ion-select-option [value]="flag.flag_id">{{ flag.label }}</ion-select-option>
+            }
+          </ion-select>
+        </ion-item>
+      </ion-list>
+    </section>
+
+    @if (search_loading) {
+      <ion-list>
+        <ion-item>
+          <ion-label>Searching...</ion-label>
+        </ion-item>
+      </ion-list>
+    } @else if (search_results.length > 0) {
+      <ion-list class="search-results">
+        @for (result of search_results; track result.result_type + ':' + result.take_id + ':' + result.slate_scene_id + ':' + result.slate_id + ':' + result.shoot_day_id + ':' + result.project_id) {
+          <ion-item button detail="true" [routerLink]="result_link(result)">
+            <ion-label>
+              <div class="result-heading">
+                <ion-badge color="medium">{{ result_type_label(result) }}</ion-badge>
+                <h2>{{ result_title(result) }}</h2>
+              </div>
+              @if (result_subtitle(result)) {
+                <p>{{ result_subtitle(result) }}</p>
+              }
+              @if (result_context(result)) {
+                <p class="result-context">{{ result_context(result) }}</p>
+              }
+              @if (result_match(result)) {
+                <p class="result-match">{{ result_match(result) }}</p>
+              }
+            </ion-label>
+          </ion-item>
+        }
+      </ion-list>
+    } @else if (search_has_run) {
+      <section class="empty-search-state">
+        <h1>No results</h1>
+        <p>Try a scene name, flag, note, location, camera, or timecode.</p>
+      </section>
+    } @else {
+      <section class="section-page">
+        <p class="section-kicker">Digital Slate</p>
+        <h1>{{ page_title }}</h1>
+        <p>{{ page_summary }}</p>
+      </section>
+    }
+  } @else {
+    <section class="section-page">
+      <p class="section-kicker">Digital Slate</p>
+      <h1>{{ page_title }}</h1>
+      <p>{{ page_summary }}</p>
+    </section>
+  }
 </ion-content>

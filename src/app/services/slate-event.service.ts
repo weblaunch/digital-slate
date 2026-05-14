@@ -7,21 +7,85 @@ export interface SlateHardwareEvent {
   device_id: string;
   timecode: string;
   received_at: string;
+  raw_message?: string;
+}
+
+export interface SlateHardwareEventMessage {
+  type: SlateHardwareEventType | 'slate_opened' | 'slate_closed';
+  timecode: string;
+  device_id?: string;
+  sent_at?: string;
+  battery?: number;
 }
 
 @Injectable({ providedIn: 'root' })
 export class SlateEventService {
   create_fake_event(event_type: SlateHardwareEventType): SlateHardwareEvent {
+    return this.parse_json_event_message(this.create_fake_event_message(event_type), 'fake-slate-001');
+  }
+
+  create_fake_event_message(event_type: SlateHardwareEventType): string {
     const received_at = new Date();
+
+    const message: SlateHardwareEventMessage = {
+      type: event_type,
+      device_id: 'fake-slate-001',
+      timecode: current_slate_timecode(received_at),
+      sent_at: received_at.toISOString(),
+    };
+
+    return JSON.stringify(message);
+  }
+
+  parse_json_event_message(message: string, fallback_device_id = 'unknown-slate'): SlateHardwareEvent {
+    const payload = parse_json_object(message);
+    const event_type = normalize_event_type(payload['type']);
+    const timecode = normalize_timecode(payload['timecode']);
+    const device_id = normalize_optional_string(payload['device_id']) || fallback_device_id;
 
     return {
       event_type,
-      device_id: 'fake-slate-001',
-      timecode: current_slate_timecode(received_at),
-      received_at: received_at.toISOString(),
+      device_id,
+      timecode,
+      received_at: new Date().toISOString(),
+      raw_message: message,
     };
   }
 }
+
+const parse_json_object = (message: string): Record<string, unknown> => {
+  const payload = JSON.parse(message) as unknown;
+
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('Slate event message must be a JSON object.');
+  }
+
+  return payload as Record<string, unknown>;
+};
+
+const normalize_event_type = (value: unknown): SlateHardwareEventType => {
+  if (value === 'open' || value === 'slate_opened') {
+    return 'open';
+  }
+
+  if (value === 'close' || value === 'slate_closed') {
+    return 'close';
+  }
+
+  throw new Error(`Unsupported slate event type: ${String(value)}`);
+};
+
+const normalize_timecode = (value: unknown): string => {
+  if (typeof value !== 'string' || !/^\d{2,}:\d{2}:\d{2}:\d{2}$/.test(value)) {
+    throw new Error(`Invalid slate event timecode: ${String(value)}`);
+  }
+
+  return value;
+};
+
+const normalize_optional_string = (value: unknown): string => {
+  return typeof value === 'string' ? value.trim() : '';
+};
 
 const slate_start_hour = 9;
 const slate_frame_rate = 25;
