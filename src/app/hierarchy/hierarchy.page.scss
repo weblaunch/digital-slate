@@ -1,0 +1,162 @@
+.empty-state {
+  max-width: 560px;
+  padding: 24px;
+}
+
+.empty-state h1 {
+  margin: 0 0 12px;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.empty-state p {
+  margin: 0 0 20px;
+  color: var(--ion-color-medium-shade);
+  line-height: 1.5;
+}
+
+.breadcrumb-nav {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 14px 18px 0;
+}
+
+.breadcrumb-nav ion-button {
+  min-height: 30px;
+  margin: 0;
+  --padding-start: 6px;
+  --padding-end: 6px;
+}
+
+.breadcrumb-current {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  color: var(--ion-color-medium-shade);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.breadcrumb-separator {
+  color: var(--ion-color-medium);
+  font-size: 14px;
+}
+
+.slate-event-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 16px 24px 0;
+}
+
+.slate-state-icon {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1;
+  margin-right: 6px;
+}
+
+.take-flag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.take-summary-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.take-number {
+  color: var(--ion-text-color);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.take-close-timecode {
+  color: var(--ion-color-medium-shade);
+  font-size: 14px;
+}
+
+.take-flag-list-inline {
+  flex: 0 1 auto;
+  flex-wrap: nowrap;
+  margin-top: 0;
+  overflow: hidden;
+}
+
+.take-notes {
+  margin-top: 4px;
+}
+
+.take-flag-icon {
+  min-width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0 6px;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.flag-choice-icon {
+  margin-right: 12px;
+}
+
+.flags-list-header {
+  padding-right: 8px;
+}
+
+.flags-list-title,
+.add-flag-actions {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.flags-list-title ion-button {
+  min-width: 36px;
+  min-height: 36px;
+  margin: 0;
+}
+
+.slate-picker-content ion-list {
+  background: transparent;
+}
+
+.take-form-content ion-list,
+.slate-picker-content ion-list {
+  background: transparent;
+}
+
+.new-slate-action,
+.new-slate-form,
+.take-form-actions {
+  padding: 16px;
+}
+
+.new-slate-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 12px;
+}
+
+.take-form-actions {
+  display: flex;
+  justify-content: flex-end;
+}

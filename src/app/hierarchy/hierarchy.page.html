@@ -1,0 +1,383 @@
+<ion-header [translucent]="true">
+  <ion-toolbar>
+    <ion-buttons slot="start">
+      <ion-menu-button></ion-menu-button>
+    </ion-buttons>
+    <ion-title>{{ page_title }}</ion-title>
+    <ion-buttons slot="end">
+      <ion-button [attr.aria-label]="add_label" (click)="add_item()">
+        <ion-icon slot="icon-only" name="add-outline"></ion-icon>
+      </ion-button>
+    </ion-buttons>
+  </ion-toolbar>
+</ion-header>
+
+<ion-content [fullscreen]="true">
+  <ion-header collapse="condense">
+    <ion-toolbar>
+      <ion-title size="large">{{ page_title }}</ion-title>
+    </ion-toolbar>
+  </ion-header>
+
+  @if (breadcrumbs.length > 0) {
+    <nav class="breadcrumb-nav" aria-label="Breadcrumb">
+      @for (breadcrumb of breadcrumbs; track breadcrumb.label) {
+        @if (breadcrumb.link) {
+          <ion-button fill="clear" size="small" [routerLink]="breadcrumb.link">
+            {{ breadcrumb.label }}
+          </ion-button>
+        } @else {
+          <span class="breadcrumb-current">{{ breadcrumb.label }}</span>
+        }
+
+        @if (!$last) {
+          <ion-icon class="breadcrumb-separator" name="chevron-forward-outline"></ion-icon>
+        }
+      }
+    </nav>
+  }
+
+  @if (level === 'takes') {
+    <section class="slate-event-controls">
+      <ion-button color="warning" (click)="fake_slate_open()">
+        <span slot="start" class="slate-state-icon">&lt;</span>
+        Open Slate
+      </ion-button>
+      <ion-button color="success" (click)="fake_slate_close()">
+        <span slot="start" class="slate-state-icon">=</span>
+        Close Slate
+      </ion-button>
+    </section>
+  }
+
+  @if (loading) {
+    <ion-list>
+      <ion-item>
+        <ion-label>Loading {{ page_title | lowercase }}...</ion-label>
+      </ion-item>
+    </ion-list>
+  } @else if (items.length === 0) {
+    <section class="empty-state">
+      <h1>{{ empty_title }}</h1>
+      <p>{{ empty_summary }}</p>
+      <ion-button (click)="add_item()">
+        <ion-icon slot="start" name="add-outline"></ion-icon>
+        {{ add_label }}
+      </ion-button>
+    </section>
+  } @else {
+    <ion-list>
+      @for (item of items; track item_id(item)) {
+        @if (item_link(item); as link) {
+          <ion-item detail="true" [routerLink]="link">
+            <ion-label>
+              @if (level === 'takes') {
+                <div class="take-summary-line">
+                  <span class="take-number">{{ item_title(item) }}</span>
+                  @if (take_close_timecode(item); as close_timecode) {
+                    <span class="take-close-timecode">{{ close_timecode }}</span>
+                  }
+                  @if (take_flag_icons(item).length > 0) {
+                    <span class="take-flag-list take-flag-list-inline">
+                      @for (flag_icon of take_flag_icons(item); track flag_icon.flag_id) {
+                        <span
+                          class="take-flag-icon"
+                          [style.background]="flag_icon.color"
+                          [attr.title]="flag_icon.label"
+                          [attr.aria-label]="flag_icon.label"
+                        >
+                          {{ flag_icon.symbol }}
+                        </span>
+                      }
+                    </span>
+                  }
+                </div>
+                @if (take_notes(item); as notes) {
+                  <p class="take-notes">{{ notes }}</p>
+                }
+              } @else {
+                <h2>{{ item_title(item) }}</h2>
+                <p>{{ item_subtitle(item) }}</p>
+              }
+            </ion-label>
+            <ion-button
+              slot="end"
+              fill="clear"
+              [attr.aria-label]="'Edit ' + item_title(item)"
+              (click)="edit_item($event, item)"
+            >
+              <ion-icon slot="icon-only" name="pencil-outline"></ion-icon>
+            </ion-button>
+          </ion-item>
+        } @else {
+          <ion-item>
+            <ion-label>
+              @if (level === 'takes') {
+                <div class="take-summary-line">
+                  <span class="take-number">{{ item_title(item) }}</span>
+                  @if (take_close_timecode(item); as close_timecode) {
+                    <span class="take-close-timecode">{{ close_timecode }}</span>
+                  }
+                  @if (take_flag_icons(item).length > 0) {
+                    <span class="take-flag-list take-flag-list-inline">
+                      @for (flag_icon of take_flag_icons(item); track flag_icon.flag_id) {
+                        <span
+                          class="take-flag-icon"
+                          [style.background]="flag_icon.color"
+                          [attr.title]="flag_icon.label"
+                          [attr.aria-label]="flag_icon.label"
+                        >
+                          {{ flag_icon.symbol }}
+                        </span>
+                      }
+                    </span>
+                  }
+                </div>
+                @if (take_notes(item); as notes) {
+                  <p class="take-notes">{{ notes }}</p>
+                }
+              } @else {
+                <h2>{{ item_title(item) }}</h2>
+                <p>{{ item_subtitle(item) }}</p>
+              }
+            </ion-label>
+            <ion-button
+              slot="end"
+              fill="clear"
+              [attr.aria-label]="'Edit ' + item_title(item)"
+              (click)="edit_item($event, item)"
+            >
+              <ion-icon slot="icon-only" name="pencil-outline"></ion-icon>
+            </ion-button>
+          </ion-item>
+        }
+      }
+    </ion-list>
+  }
+
+  <ion-modal [isOpen]="slate_picker_open" (didDismiss)="close_slate_picker()">
+    <ng-template>
+      <ion-header>
+        <ion-toolbar>
+          <ion-title>Add Slate</ion-title>
+          <ion-buttons slot="end">
+            <ion-button (click)="close_slate_picker()">Cancel</ion-button>
+          </ion-buttons>
+        </ion-toolbar>
+      </ion-header>
+
+      <ion-content class="slate-picker-content">
+        @if (slate_picker_loading) {
+          <ion-list>
+            <ion-item>
+              <ion-label>Loading slates...</ion-label>
+            </ion-item>
+          </ion-list>
+        } @else {
+          @if (reusable_slates.length > 0) {
+            <ion-list>
+              <ion-list-header>
+                <ion-label>Existing Slates</ion-label>
+              </ion-list-header>
+              @for (reusable_slate of reusable_slates; track reusable_slate.camera) {
+                <ion-item button detail="false" (click)="select_reusable_slate(reusable_slate)">
+                  <ion-label>
+                    <h2>{{ reusable_slate.camera }}</h2>
+                    <p>
+                      @if (reusable_slate.last_used_date) {
+                        Last used {{ display_date(reusable_slate.last_used_date) }}
+                      } @else {
+                        Previously used on this project
+                      }
+                    </p>
+                  </ion-label>
+                  <ion-icon slot="end" name="add-circle-outline"></ion-icon>
+                </ion-item>
+              }
+            </ion-list>
+          }
+
+          @if (!show_new_slate_form) {
+            <section class="new-slate-action">
+              <ion-button expand="block" fill="outline" (click)="show_new_slate_form = true">
+                <ion-icon slot="start" name="add-outline"></ion-icon>
+                Add New Slate
+              </ion-button>
+            </section>
+          } @else {
+            <form class="new-slate-form" (ngSubmit)="submit_new_slate()">
+              <ion-list>
+                <ion-list-header>
+                  <ion-label>New Slate</ion-label>
+                </ion-list-header>
+                <ion-item>
+                  <ion-input
+                    label="Camera"
+                    labelPlacement="stacked"
+                    name="camera"
+                    [(ngModel)]="new_slate_camera"
+                    placeholder="A Cam"
+                    autocomplete="off"
+                  ></ion-input>
+                </ion-item>
+              </ion-list>
+
+              <section class="new-slate-actions">
+                @if (reusable_slates.length > 0) {
+                  <ion-button type="button" fill="clear" (click)="show_new_slate_form = false">
+                    Existing Slates
+                  </ion-button>
+                }
+                <ion-button type="submit" [disabled]="!new_slate_camera.trim()">
+                  Add
+                </ion-button>
+              </section>
+            </form>
+          }
+        }
+      </ion-content>
+    </ng-template>
+  </ion-modal>
+
+  <ion-modal [isOpen]="take_form_open" (didDismiss)="close_take_form()">
+    <ng-template>
+      <ion-header>
+        <ion-toolbar>
+          <ion-title>{{ take_form_title }}</ion-title>
+          <ion-buttons slot="end">
+            <ion-button (click)="close_take_form()">Cancel</ion-button>
+          </ion-buttons>
+        </ion-toolbar>
+      </ion-header>
+
+      <ion-content class="take-form-content">
+        <form (ngSubmit)="submit_take_form()">
+          <ion-list>
+            <ion-item>
+              <ion-input
+                label="Take number"
+                labelPlacement="stacked"
+                type="number"
+                name="take_number"
+                [(ngModel)]="take_form_take_number"
+              ></ion-input>
+            </ion-item>
+            <ion-item>
+              <ion-input
+                label="Open timecode"
+                labelPlacement="stacked"
+                name="slate_open_timecode"
+                [(ngModel)]="take_form_open_timecode"
+                placeholder="09:00:00:00"
+              ></ion-input>
+            </ion-item>
+            <ion-item>
+              <ion-input
+                label="Close timecode"
+                labelPlacement="stacked"
+                name="slate_close_timecode"
+                [(ngModel)]="take_form_close_timecode"
+                placeholder="09:00:00:00"
+              ></ion-input>
+            </ion-item>
+            <ion-item>
+              <ion-textarea
+                label="Notes"
+                labelPlacement="stacked"
+                name="notes"
+                [(ngModel)]="take_form_notes"
+                autoGrow="true"
+              ></ion-textarea>
+            </ion-item>
+          </ion-list>
+
+          <ion-list>
+            <ion-list-header class="flags-list-header">
+              <div class="flags-list-title">
+                <ion-label>Flags</ion-label>
+                <ion-button
+                  type="button"
+                  fill="clear"
+                  size="small"
+                  [attr.aria-label]="show_add_flag_form ? 'Hide add flag form' : 'Show add flag form'"
+                  (click)="show_add_flag_form = !show_add_flag_form"
+                >
+                  <ion-icon slot="icon-only" [name]="show_add_flag_form ? 'close-outline' : 'add-outline'"></ion-icon>
+                </ion-button>
+              </div>
+            </ion-list-header>
+
+            @if (flags.length > 0) {
+              @for (flag of flags; track flag.flag_id) {
+                <ion-item>
+                  <span class="take-flag-icon flag-choice-icon" [style.background]="flag.color">
+                    {{ flag_symbol(flag.flag_id) }}
+                  </span>
+                  <ion-checkbox
+                    justify="space-between"
+                    [checked]="flag_checked(flag.flag_id)"
+                    (ionChange)="set_flag_checked(flag.flag_id, $event.detail.checked)"
+                  >
+                    {{ flag.label }}
+                  </ion-checkbox>
+                </ion-item>
+              }
+            } @else {
+              <ion-item>
+                <ion-label>No flags yet</ion-label>
+              </ion-item>
+            }
+          </ion-list>
+
+          @if (show_add_flag_form) {
+            <ion-list>
+              <ion-list-header>
+                <ion-label>Add Flag</ion-label>
+              </ion-list-header>
+              <ion-item>
+                <ion-input
+                  label="Flag name"
+                  labelPlacement="stacked"
+                  name="new_flag_label"
+                  [(ngModel)]="new_flag_label"
+                  placeholder="Wild track"
+                ></ion-input>
+              </ion-item>
+              <ion-item>
+                <ion-input
+                  label="Flag color"
+                  labelPlacement="stacked"
+                  type="color"
+                  name="new_flag_color"
+                  [(ngModel)]="new_flag_color"
+                ></ion-input>
+              </ion-item>
+              <ion-item lines="none">
+                <div class="add-flag-actions">
+                  <ion-button type="button" fill="clear" (click)="cancel_add_flag()">
+                    Cancel
+                  </ion-button>
+                  <ion-button
+                    type="button"
+                    fill="outline"
+                    [disabled]="!new_flag_label.trim()"
+                    (click)="add_flag_to_take_form()"
+                  >
+                    <ion-icon slot="start" name="add-outline"></ion-icon>
+                    Add Flag
+                  </ion-button>
+                </div>
+              </ion-item>
+            </ion-list>
+          }
+
+          <section class="take-form-actions">
+            <ion-button type="submit">
+              {{ take_form_take ? 'Update' : 'Add' }}
+            </ion-button>
+          </section>
+        </form>
+      </ion-content>
+    </ng-template>
+  </ion-modal>
+</ion-content>

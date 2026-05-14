@@ -324,6 +324,7 @@ Planned stack:
 - Ionic
 - Angular
 - Capacitor
+- @capacitor-community/sqlite
 
 Using:
 
@@ -427,7 +428,6 @@ Properties:
 - take_number
 - slate_open_timecode
 - slate_close_timecode
-- flags
 - notes
 - created_at
 
@@ -440,6 +440,9 @@ NOT directly to scene.
 ---
 
 # Flags
+
+Flags are stored in a pre-populated lookup table, with a join table linking
+flags to takes.
 
 Suggested default flags:
 
@@ -640,6 +643,13 @@ Use Capacitor Preferences only for:
 - App settings
 - Connection settings
 - User preferences
+
+Current app SQLite setup:
+
+- Uses `@capacitor-community/sqlite`.
+- Uses `jeep-sqlite` for browser development.
+- Requires `src/assets/sql-wasm.wasm` for the web SQLite store.
+- Capacitor app id: `com.weblaunchuk.digitalslate`.
 
 ---
 
