@@ -107,6 +107,75 @@
         <p>{{ page_summary }}</p>
       </section>
     }
+  } @else if (folder === 'export') {
+    <section class="export-panel">
+      <ion-list>
+        <ion-item>
+          <ion-select
+            label="Project"
+            labelPlacement="stacked"
+            interface="popover"
+            name="export_project"
+            [ngModel]="export_project_id"
+            (ionChange)="set_export_project($event.detail.value)"
+          >
+            @for (project of export_projects; track project.project_id) {
+              <ion-select-option [value]="project.project_id">{{ project.name }}</ion-select-option>
+            }
+          </ion-select>
+        </ion-item>
+
+        <ion-item>
+          <ion-select
+            label="Shoot day"
+            labelPlacement="stacked"
+            interface="popover"
+            name="export_shoot_day"
+            [ngModel]="export_shoot_day_id"
+            (ionChange)="set_export_shoot_day($event.detail.value)"
+          >
+            <ion-select-option value="">All days</ion-select-option>
+            @for (day of export_shoot_days; track day.shoot_day_id) {
+              <ion-select-option [value]="day.shoot_day_id">{{ export_day_label(day) }}</ion-select-option>
+            }
+          </ion-select>
+        </ion-item>
+      </ion-list>
+
+      <section class="export-summary">
+        <p class="section-kicker">Resolve Prep</p>
+        <h1>{{ export_loading ? 'Preparing export...' : export_count_label() }}</h1>
+        <p>
+          Exports source clip names, suggested Scene/Take names, slate open and close timecode, trim-out timecode, flags, notes, rolls, and cards.
+        </p>
+        <div class="export-actions">
+          <ion-button [disabled]="export_loading || export_takes.length === 0" (click)="download_export_csv()">
+            <ion-icon slot="start" name="download-outline"></ion-icon>
+            CSV
+          </ion-button>
+          <ion-button fill="outline" [disabled]="export_loading || export_takes.length === 0" (click)="download_export_json()">
+            <ion-icon slot="start" name="code-download-outline"></ion-icon>
+            JSON
+          </ion-button>
+        </div>
+      </section>
+
+      @if (!export_loading && export_takes.length > 0) {
+        <ion-list class="export-preview">
+          @for (take of export_takes.slice(0, 8); track take.take_id) {
+            <ion-item>
+              <ion-label>
+                <h2>{{ take.clip_name || 'No clip name' }} → Sc{{ take.scene_name }} T{{ take.take_number < 10 ? '0' + take.take_number : take.take_number }}</h2>
+                <p>{{ take.camera }} · {{ take.roll_name || 'No reel' }} · {{ take.slate_close_timecode || 'No close TC' }}</p>
+                @if (take.flags) {
+                  <p>{{ take.flags }}</p>
+                }
+              </ion-label>
+            </ion-item>
+          }
+        </ion-list>
+      }
+    </section>
   } @else {
     <section class="section-page">
       <p class="section-kicker">Digital Slate</p>

@@ -67,12 +67,39 @@ export interface Take {
   shoot_day_id: string;
   slate_id: string;
   slate_scene_id: string;
+  roll_id: string | null;
+  roll_name?: string | null;
+  card_label?: string | null;
+  clip_name: string | null;
   take_number: number;
   slate_open_timecode: string | null;
   slate_close_timecode: string | null;
   notes: string | null;
   flags?: string | null;
   flag_ids?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MediaCard {
+  card_id: string;
+  label: string;
+  media_type: string | null;
+  active: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Roll {
+  roll_id: string;
+  project_id: string;
+  shoot_day_id: string;
+  slate_id: string;
+  card_id: string | null;
+  roll_name: string;
+  last_clip_name: string | null;
+  notes: string | null;
+  card_label?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -106,6 +133,31 @@ export interface SearchResult {
   flags?: string | null;
 }
 
+export interface ExportTake {
+  project_id: string;
+  project_name: string;
+  shoot_day_id: string;
+  shoot_date: string;
+  location: string | null;
+  slate_id: string;
+  camera: string;
+  slate_scene_id: string;
+  scene_name: string;
+  scene_location: string | null;
+  time_of_day: string | null;
+  take_id: string;
+  take_number: number;
+  roll_id: string | null;
+  roll_name: string | null;
+  card_label: string | null;
+  clip_name: string | null;
+  slate_open_timecode: string | null;
+  slate_close_timecode: string | null;
+  notes: string | null;
+  flags: string | null;
+  flag_ids: string | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class SlateDatabaseService {
   private sqlite = new SQLiteConnection(CapacitorSQLite);
@@ -118,8 +170,14 @@ export class SlateDatabaseService {
     }
 
     this.init_promise ??= this.open_database();
-    this.database = await this.init_promise;
-    return this.database;
+    try {
+      this.database = await this.init_promise;
+      return this.database;
+    } catch (error) {
+      this.init_promise = null;
+      this.database = null;
+      throw error;
+    }
   }
 
   async list_projects(): Promise<Project[]> {
@@ -134,6 +192,54 @@ export class SlateDatabaseService {
       ORDER BY p.updated_at DESC, p.name COLLATE NOCASE ASC
     `);
     return (result.values ?? []) as Project[];
+  }
+
+  async list_export_takes(input: {
+    project_id: string;
+    shoot_day_id?: string | null;
+  }): Promise<ExportTake[]> {
+    const shoot_day_filter = input.shoot_day_id ? 'AND sd.shoot_day_id = ?' : '';
+    const values = input.shoot_day_id ? [input.project_id, input.shoot_day_id] : [input.project_id];
+
+    return this.query<ExportTake>(`
+      SELECT
+        p.project_id,
+        p.name AS project_name,
+        sd.shoot_day_id,
+        sd.date AS shoot_date,
+        sd.location,
+        s.slate_id,
+        s.camera,
+        ss.slate_scene_id,
+        sc.scene_name,
+        sc.location AS scene_location,
+        sc.time_of_day,
+        t.take_id,
+        t.take_number,
+        t.roll_id,
+        r.roll_name,
+        mc.label AS card_label,
+        t.clip_name,
+        t.slate_open_timecode,
+        t.slate_close_timecode,
+        t.notes,
+        GROUP_CONCAT(DISTINCT f.label) AS flags,
+        GROUP_CONCAT(DISTINCT f.flag_id) AS flag_ids
+      FROM take t
+      JOIN slate_scene ss ON ss.slate_scene_id = t.slate_scene_id
+      JOIN scene sc ON sc.scene_id = ss.scene_id
+      JOIN slate s ON s.slate_id = t.slate_id
+      JOIN shoot_day sd ON sd.shoot_day_id = t.shoot_day_id
+      JOIN project p ON p.project_id = sd.project_id
+      LEFT JOIN roll r ON r.roll_id = t.roll_id
+      LEFT JOIN media_card mc ON mc.card_id = r.card_id
+      LEFT JOIN take_flag tf ON tf.take_id = t.take_id
+      LEFT JOIN flag f ON f.flag_id = tf.flag_id
+      WHERE p.project_id = ?
+        ${shoot_day_filter}
+      GROUP BY t.take_id
+      ORDER BY sd.date ASC, s.camera COLLATE NOCASE ASC, ss.scene_order ASC, t.take_number ASC
+    `, values);
   }
 
   async create_project(input: {
@@ -461,15 +567,133 @@ export class SlateDatabaseService {
     return this.query<Take>(`
       SELECT
         t.*,
+        r.roll_name,
+        mc.label AS card_label,
         GROUP_CONCAT(f.label, ', ') AS flags,
         GROUP_CONCAT(f.flag_id, ',') AS flag_ids
       FROM take t
+      LEFT JOIN roll r ON r.roll_id = t.roll_id
+      LEFT JOIN media_card mc ON mc.card_id = r.card_id
       LEFT JOIN take_flag tf ON tf.take_id = t.take_id
       LEFT JOIN flag f ON f.flag_id = tf.flag_id
       WHERE t.slate_scene_id = ?
       GROUP BY t.take_id
       ORDER BY t.take_number DESC
     `, [slate_scene_id]);
+  }
+
+  async list_rolls_for_slate(slate_id: string): Promise<Roll[]> {
+    return this.query<Roll>(`
+      SELECT
+        r.*,
+        mc.label AS card_label
+      FROM roll r
+      LEFT JOIN media_card mc ON mc.card_id = r.card_id
+      WHERE r.project_id = (
+        SELECT sd.project_id
+        FROM slate s
+        JOIN shoot_day sd ON sd.shoot_day_id = s.shoot_day_id
+        WHERE s.slate_id = ?
+      )
+      ORDER BY r.roll_name COLLATE NOCASE ASC
+    `, [slate_id]);
+  }
+
+  async create_roll(input: {
+    slate_id: string;
+    roll_name: string;
+    card_label?: string | null;
+    notes?: string | null;
+  }): Promise<Roll> {
+    const roll_name = input.roll_name.trim();
+    if (!roll_name) {
+      throw new Error('Roll name is required.');
+    }
+
+    const context = await this.query_one<{ project_id: string; shoot_day_id: string }>(
+      `SELECT
+        sd.project_id,
+        s.shoot_day_id
+       FROM slate s
+       JOIN shoot_day sd ON sd.shoot_day_id = s.shoot_day_id
+       WHERE s.slate_id = ?`,
+      [input.slate_id],
+    );
+
+    if (!context) {
+      throw new Error(`Cannot create roll for missing slate ${input.slate_id}`);
+    }
+
+    const existing = await this.query_one<Roll>(
+      `SELECT
+        r.*,
+        mc.label AS card_label
+       FROM roll r
+       LEFT JOIN media_card mc ON mc.card_id = r.card_id
+       WHERE r.project_id = ? AND r.roll_name = ? COLLATE NOCASE
+       LIMIT 1`,
+      [context.project_id, roll_name],
+    );
+
+    if (existing) {
+      return existing;
+    }
+
+    const now = timestamp();
+    const card_id = await this.find_or_create_media_card(input.card_label, now);
+    const roll: Roll = {
+      roll_id: create_id('roll'),
+      project_id: context.project_id,
+      shoot_day_id: context.shoot_day_id,
+      slate_id: input.slate_id,
+      card_id,
+      roll_name,
+      last_clip_name: null,
+      notes: empty_to_null(input.notes),
+      card_label: input.card_label?.trim() || null,
+      created_at: now,
+      updated_at: now,
+    };
+
+    await this.run(
+      `INSERT INTO roll (
+        roll_id,
+        project_id,
+        shoot_day_id,
+        slate_id,
+        card_id,
+        roll_name,
+        last_clip_name,
+        notes,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        roll.roll_id,
+        roll.project_id,
+        roll.shoot_day_id,
+        roll.slate_id,
+        roll.card_id,
+        roll.roll_name,
+        roll.last_clip_name,
+        roll.notes,
+        roll.created_at,
+        roll.updated_at,
+      ],
+    );
+
+    return roll;
+  }
+
+  async suggest_clip_name_for_roll(roll_id: string): Promise<string> {
+    const roll = await this.query_one<Roll>(
+      `SELECT *
+       FROM roll
+       WHERE roll_id = ?`,
+      [roll_id],
+    );
+
+    return this.next_available_clip_name_for_roll(roll_id, increment_clip_name(roll?.last_clip_name ?? ''));
   }
 
   async list_flags(): Promise<Flag[]> {
@@ -611,6 +835,8 @@ export class SlateDatabaseService {
 
   async create_take(input: {
     slate_scene_id: string;
+    roll_id?: string | null;
+    clip_name?: string | null;
     take_number: number;
     slate_open_timecode?: string | null;
     slate_close_timecode?: string | null;
@@ -633,24 +859,30 @@ export class SlateDatabaseService {
       throw new Error(`Cannot create take for missing slate scene ${input.slate_scene_id}`);
     }
 
+    const clip_name = await this.prepare_clip_name_for_new_take(input.roll_id, input.clip_name);
+
     await this.run(
       `INSERT INTO take (
         take_id,
         shoot_day_id,
         slate_id,
         slate_scene_id,
+        roll_id,
+        clip_name,
         take_number,
         slate_open_timecode,
         slate_close_timecode,
         notes,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         take_id,
         context.shoot_day_id,
         context.slate_id,
         input.slate_scene_id,
+        empty_to_null(input.roll_id),
+        clip_name,
         input.take_number,
         empty_to_null(input.slate_open_timecode),
         empty_to_null(input.slate_close_timecode),
@@ -659,11 +891,14 @@ export class SlateDatabaseService {
         now,
       ],
     );
+    await this.update_roll_clip_counter(input.roll_id, clip_name);
     await this.set_take_flags(take_id, input.flag_ids ?? []);
   }
 
   async update_take(input: {
     take_id: string;
+    roll_id?: string | null;
+    clip_name?: string | null;
     take_number: number;
     slate_open_timecode?: string | null;
     slate_close_timecode?: string | null;
@@ -673,6 +908,8 @@ export class SlateDatabaseService {
     await this.run(
       `UPDATE take
        SET
+        roll_id = ?,
+        clip_name = ?,
         take_number = ?,
         slate_open_timecode = ?,
         slate_close_timecode = ?,
@@ -680,6 +917,8 @@ export class SlateDatabaseService {
         updated_at = ?
        WHERE take_id = ?`,
       [
+        empty_to_null(input.roll_id),
+        empty_to_null(input.clip_name),
         input.take_number,
         empty_to_null(input.slate_open_timecode),
         empty_to_null(input.slate_close_timecode),
@@ -688,7 +927,176 @@ export class SlateDatabaseService {
         input.take_id,
       ],
     );
+    await this.update_roll_clip_counter(input.roll_id, input.clip_name);
     await this.set_take_flags(input.take_id, input.flag_ids ?? []);
+  }
+
+  async delete_take(take_id: string): Promise<void> {
+    const take = await this.query_one<Take>(
+      `SELECT *
+       FROM take
+       WHERE take_id = ?`,
+      [take_id],
+    );
+
+    if (!take) {
+      return;
+    }
+
+    const db = await this.init();
+    await db.executeSet([
+      {
+        statement: 'DELETE FROM take_flag WHERE take_id = ?',
+        values: [take_id],
+      },
+      {
+        statement: 'DELETE FROM take WHERE take_id = ?',
+        values: [take_id],
+      },
+    ]);
+
+    if (take.roll_id && take.clip_name) {
+      await this.rewind_roll_clip_counter_if_current(take.roll_id, take.clip_name);
+    }
+
+    await this.save_if_web();
+  }
+
+  private async update_roll_clip_counter(
+    roll_id: string | null | undefined,
+    clip_name: string | null | undefined,
+  ): Promise<void> {
+    const normalized_roll_id = roll_id?.trim();
+    const normalized_clip_name = clip_name?.trim();
+    if (!normalized_roll_id || !normalized_clip_name) {
+      return;
+    }
+
+    await this.run(
+      `UPDATE roll
+       SET last_clip_name = ?, updated_at = ?
+       WHERE roll_id = ?`,
+      [normalized_clip_name, timestamp(), normalized_roll_id],
+    );
+  }
+
+  private async prepare_clip_name_for_new_take(
+    roll_id: string | null | undefined,
+    clip_name: string | null | undefined,
+  ): Promise<string | null> {
+    const normalized_roll_id = roll_id?.trim();
+    const normalized_clip_name = clip_name?.trim();
+    if (!normalized_roll_id || !normalized_clip_name) {
+      return empty_to_null(normalized_clip_name);
+    }
+
+    return this.next_available_clip_name_for_roll(normalized_roll_id, normalized_clip_name);
+  }
+
+  private async next_available_clip_name_for_roll(roll_id: string, clip_name: string): Promise<string> {
+    let next_clip_name = clip_name;
+
+    while (next_clip_name) {
+      const existing = await this.query_one<{ take_id: string }>(
+        `SELECT take_id
+         FROM take
+         WHERE roll_id = ?
+           AND clip_name = ? COLLATE NOCASE
+         LIMIT 1`,
+        [roll_id, next_clip_name],
+      );
+
+      if (!existing) {
+        return next_clip_name;
+      }
+
+      next_clip_name = increment_clip_name(next_clip_name);
+    }
+
+    return next_clip_name;
+  }
+
+  private async rewind_roll_clip_counter_if_current(roll_id: string, deleted_clip_name: string): Promise<void> {
+    const roll = await this.query_one<Roll>(
+      `SELECT *
+       FROM roll
+       WHERE roll_id = ?`,
+      [roll_id],
+    );
+
+    if (roll?.last_clip_name !== deleted_clip_name) {
+      return;
+    }
+
+    const previous_take = await this.query_one<{ clip_name: string }>(
+      `SELECT clip_name
+       FROM take
+       WHERE roll_id = ?
+         AND clip_name IS NOT NULL
+         AND TRIM(clip_name) != ''
+       ORDER BY created_at DESC, take_number DESC
+       LIMIT 1`,
+      [roll_id],
+    );
+
+    await this.run(
+      `UPDATE roll
+       SET last_clip_name = ?, updated_at = ?
+       WHERE roll_id = ?`,
+      [previous_take?.clip_name ?? null, timestamp(), roll_id],
+    );
+  }
+
+  private async repair_duplicate_clip_names(db: SQLiteDBConnection): Promise<void> {
+    const rows = await db.query(`
+      SELECT
+        take_id,
+        roll_id,
+        clip_name
+      FROM take
+      WHERE roll_id IS NOT NULL
+        AND TRIM(roll_id) != ''
+        AND clip_name IS NOT NULL
+        AND TRIM(clip_name) != ''
+      ORDER BY roll_id ASC, created_at ASC, take_number ASC
+    `);
+    const used_clip_names_by_roll = new Map<string, Set<string>>();
+    const last_clip_name_by_roll = new Map<string, string>();
+    const now = timestamp();
+
+    for (const row of rows.values ?? []) {
+      const take_id = String(row['take_id']);
+      const roll_id = String(row['roll_id']);
+      const original_clip_name = String(row['clip_name']).trim();
+      const used_clip_names = used_clip_names_by_roll.get(roll_id) ?? new Set<string>();
+      let clip_name = original_clip_name;
+
+      while (clip_name && used_clip_names.has(clip_name.toLowerCase())) {
+        clip_name = increment_clip_name(clip_name);
+      }
+
+      if (clip_name !== original_clip_name) {
+        await db.run(
+          `UPDATE take
+           SET clip_name = ?, updated_at = ?
+           WHERE take_id = ?`,
+          [clip_name, now, take_id],
+        );
+      }
+
+      used_clip_names.add(clip_name.toLowerCase());
+      used_clip_names_by_roll.set(roll_id, used_clip_names);
+      last_clip_name_by_roll.set(roll_id, clip_name);
+    }
+
+    for (const [roll_id, clip_name] of last_clip_name_by_roll.entries()) {
+      await db.run(
+        `UPDATE roll
+         SET last_clip_name = ?, updated_at = ?
+         WHERE roll_id = ?`,
+        [clip_name, now, roll_id],
+      );
+    }
   }
 
   async close_latest_open_take(input: {
@@ -745,6 +1153,7 @@ export class SlateDatabaseService {
     }
 
     await this.ensure_take_context_columns(db);
+    await this.repair_duplicate_clip_names(db);
     await db.executeSet(build_seed_default_flags_sql(timestamp()));
     this.database = db;
     await this.save_if_web();
@@ -762,6 +1171,19 @@ export class SlateDatabaseService {
     if (!columns.has('slate_id')) {
       await db.execute(`ALTER TABLE take ADD COLUMN slate_id TEXT`);
     }
+
+    if (!columns.has('roll_id')) {
+      await db.execute(`ALTER TABLE take ADD COLUMN roll_id TEXT`);
+    }
+
+    if (!columns.has('clip_name')) {
+      await db.execute(`ALTER TABLE take ADD COLUMN clip_name TEXT`);
+    }
+
+    await this.ensure_roll_context_columns(db);
+
+    const refreshed_table_info = await db.query(`PRAGMA table_info('take')`);
+    const refreshed_columns = new Set((refreshed_table_info.values ?? []).map((row) => String(row['name'])));
 
     await db.execute(`
       UPDATE take
@@ -783,6 +1205,19 @@ export class SlateDatabaseService {
 
     await db.execute(`CREATE INDEX IF NOT EXISTS idx_take_shoot_day_id ON take(shoot_day_id)`);
     await db.execute(`CREATE INDEX IF NOT EXISTS idx_take_slate_id ON take(slate_id)`);
+    if (refreshed_columns.has('roll_id')) {
+      await db.execute(`CREATE INDEX IF NOT EXISTS idx_take_roll_id ON take(roll_id)`);
+      await this.migrate_roll_text_values(db, refreshed_columns);
+    }
+  }
+
+  private async ensure_roll_context_columns(db: SQLiteDBConnection): Promise<void> {
+    const table_info = await db.query(`PRAGMA table_info('roll')`);
+    const columns = new Set((table_info.values ?? []).map((row) => String(row['name'])));
+
+    if (!columns.has('last_clip_name')) {
+      await db.execute(`ALTER TABLE roll ADD COLUMN last_clip_name TEXT`);
+    }
   }
 
   private async set_take_flags(take_id: string, flag_ids: string[]): Promise<void> {
@@ -806,6 +1241,112 @@ export class SlateDatabaseService {
 
     await db.executeSet(statements);
     await this.save_if_web();
+  }
+
+  private async migrate_roll_text_values(db: SQLiteDBConnection, take_columns: Set<string>): Promise<void> {
+    if (!take_columns.has('roll')) {
+      return;
+    }
+
+    const rows = await db.query(`
+      SELECT DISTINCT
+        t.roll AS roll_name,
+        t.project_id,
+        t.shoot_day_id,
+        t.slate_id
+      FROM (
+        SELECT
+          take.roll,
+          take.shoot_day_id,
+          take.slate_id,
+          sd.project_id
+        FROM take
+        JOIN shoot_day sd ON sd.shoot_day_id = take.shoot_day_id
+        WHERE take.roll IS NOT NULL
+          AND TRIM(take.roll) != ''
+          AND take.roll_id IS NULL
+      ) t
+    `);
+
+    for (const row of rows.values ?? []) {
+      const roll_name = String(row['roll_name']).trim();
+      const project_id = String(row['project_id']);
+      const shoot_day_id = String(row['shoot_day_id']);
+      const slate_id = String(row['slate_id']);
+      const now = timestamp();
+      const existing_result = await db.query(
+        `SELECT *
+         FROM roll
+         WHERE project_id = ? AND roll_name = ? COLLATE NOCASE
+         LIMIT 1`,
+        [project_id, roll_name],
+      );
+      const existing = existing_result.values?.[0] as { roll_id?: string } | undefined;
+      const roll_id = existing?.roll_id ?? create_id('roll');
+
+      if (!existing) {
+        await db.run(
+          `INSERT INTO roll (
+            roll_id,
+            project_id,
+            shoot_day_id,
+            slate_id,
+            card_id,
+            roll_name,
+            last_clip_name,
+            notes,
+            created_at,
+            updated_at
+          ) VALUES (?, ?, ?, ?, NULL, ?, NULL, NULL, ?, ?)`,
+          [roll_id, project_id, shoot_day_id, slate_id, roll_name, now, now],
+        );
+      }
+
+      await db.run(
+        `UPDATE take
+         SET roll_id = ?
+         WHERE roll_id IS NULL
+           AND roll IS NOT NULL
+           AND TRIM(roll) = ?
+           AND slate_id = ?`,
+        [roll_id, roll_name, slate_id],
+      );
+    }
+
+    await this.save_if_web();
+  }
+
+  private async find_or_create_media_card(card_label: string | null | undefined, now: string): Promise<string | null> {
+    const label = card_label?.trim();
+    if (!label) {
+      return null;
+    }
+
+    const existing = await this.query_one<MediaCard>(
+      `SELECT *
+       FROM media_card
+       WHERE label = ? COLLATE NOCASE
+       LIMIT 1`,
+      [label],
+    );
+
+    if (existing) {
+      return existing.card_id;
+    }
+
+    const card_id = create_id('card');
+    await this.run(
+      `INSERT INTO media_card (
+        card_id,
+        label,
+        media_type,
+        active,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, 'SxS', 1, ?, ?)`,
+      [card_id, label, now, now],
+    );
+    return card_id;
   }
 
   private async search_projects(like: string): Promise<SearchResult[]> {
@@ -926,6 +1467,9 @@ export class SlateDatabaseService {
         ? `AND f.label LIKE ? ESCAPE '\\'`
         : `AND (
           CAST(t.take_number AS TEXT) LIKE ? ESCAPE '\\'
+          OR r.roll_name LIKE ? ESCAPE '\\'
+          OR mc.label LIKE ? ESCAPE '\\'
+          OR t.clip_name LIKE ? ESCAPE '\\'
           OR t.slate_open_timecode LIKE ? ESCAPE '\\'
           OR t.slate_close_timecode LIKE ? ESCAPE '\\'
           OR t.notes LIKE ? ESCAPE '\\'
@@ -943,7 +1487,7 @@ export class SlateDatabaseService {
     const query_values = input.has_query
       ? input.match_flags_only
         ? [input.like]
-        : [input.like, input.like, input.like, input.like, input.like]
+        : [input.like, input.like, input.like, input.like, input.like, input.like, input.like, input.like]
       : [];
     const values = [
       ...query_values,
@@ -953,10 +1497,13 @@ export class SlateDatabaseService {
     return this.query<SearchResult>(`
       SELECT
         'take' AS result_type,
-        'Take ' || t.take_number AS title,
+        CASE
+          WHEN r.roll_name IS NOT NULL THEN r.roll_name || ' / Take ' || t.take_number
+          ELSE 'Take ' || t.take_number
+        END AS title,
         NULLIF(TRIM(COALESCE(t.slate_close_timecode, '') || ' ' || COALESCE(GROUP_CONCAT(DISTINCT f.label), '')), '') AS subtitle,
         p.name || ' > ' || sd.date || ' > ' || s.camera || ' > ' || sc.scene_name AS context,
-        t.notes AS matched_text,
+        NULLIF(TRIM(COALESCE(r.roll_name, '') || ' ' || COALESCE(mc.label, '') || ' ' || COALESCE(t.clip_name, '') || ' ' || COALESCE(t.notes, '')), '') AS matched_text,
         p.project_id,
         sd.shoot_day_id,
         s.slate_id,
@@ -965,6 +1512,8 @@ export class SlateDatabaseService {
         GROUP_CONCAT(DISTINCT f.flag_id) AS flag_ids,
         GROUP_CONCAT(DISTINCT f.label) AS flags
       FROM take t
+      LEFT JOIN roll r ON r.roll_id = t.roll_id
+      LEFT JOIN media_card mc ON mc.card_id = r.card_id
       JOIN slate_scene ss ON ss.slate_scene_id = t.slate_scene_id
       JOIN scene sc ON sc.scene_id = ss.scene_id
       JOIN slate s ON s.slate_id = t.slate_id
@@ -1020,6 +1569,19 @@ const timestamp = (): string => new Date().toISOString();
 const empty_to_null = (value: string | null | undefined): string | null => {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
+};
+
+const increment_clip_name = (clip_name: string): string => {
+  const match = clip_name.match(/^(.*?)(\d+)(\D*)$/);
+  if (!match) {
+    return clip_name ? `${clip_name}_0001` : '';
+  }
+
+  const prefix = match[1];
+  const number_text = match[2];
+  const suffix = match[3];
+  const next_number = String(Number(number_text) + 1).padStart(number_text.length, '0');
+  return `${prefix}${next_number}${suffix}`;
 };
 
 const escape_like = (value: string): string => value.replace(/[\\%_]/g, (match) => `\\${match}`);

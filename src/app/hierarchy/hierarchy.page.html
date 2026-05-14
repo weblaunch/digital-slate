@@ -47,6 +47,26 @@
         <span slot="start" class="slate-state-icon">=</span>
         Close Slate
       </ion-button>
+      <div class="take-roll-control">
+        <div class="take-roll-control-label">
+          <span>Roll</span>
+          <ion-button fill="clear" size="small" [attr.aria-label]="'Add Roll'" (click)="open_page_roll_form()">
+            <ion-icon slot="icon-only" name="add-outline"></ion-icon>
+          </ion-button>
+        </div>
+        <ion-select
+          class="take-roll-select"
+          interface="popover"
+          [ngModel]="take_page_roll_id"
+          (ionChange)="set_take_page_roll($event.detail.value)"
+          placeholder="No roll"
+        >
+          <ion-select-option value="">No roll</ion-select-option>
+          @for (roll of rolls; track roll.roll_id) {
+            <ion-select-option [value]="roll.roll_id">{{ roll_label(roll) }}</ion-select-option>
+          }
+        </ion-select>
+      </div>
     </section>
   }
 
@@ -74,6 +94,12 @@
               @if (level === 'takes') {
                 <div class="take-summary-line">
                   <span class="take-number">{{ item_title(item) }}</span>
+                  @if (take_roll(item); as roll) {
+                    <span class="take-roll">{{ roll }}</span>
+                  }
+                  @if (take_clip_name(item); as clip_name) {
+                    <span class="take-clip-name" [attr.title]="clip_name">{{ clip_name }}</span>
+                  }
                   @if (take_close_timecode(item); as close_timecode) {
                     <span class="take-close-timecode">{{ close_timecode }}</span>
                   }
@@ -108,6 +134,17 @@
             >
               <ion-icon slot="icon-only" name="pencil-outline"></ion-icon>
             </ion-button>
+            @if (level === 'takes') {
+              <ion-button
+                slot="end"
+                fill="clear"
+                color="danger"
+                [attr.aria-label]="'Delete ' + item_title(item)"
+                (click)="delete_item($event, item)"
+              >
+                <ion-icon slot="icon-only" name="trash-outline"></ion-icon>
+              </ion-button>
+            }
           </ion-item>
         } @else {
           <ion-item>
@@ -115,6 +152,12 @@
               @if (level === 'takes') {
                 <div class="take-summary-line">
                   <span class="take-number">{{ item_title(item) }}</span>
+                  @if (take_roll(item); as roll) {
+                    <span class="take-roll">{{ roll }}</span>
+                  }
+                  @if (take_clip_name(item); as clip_name) {
+                    <span class="take-clip-name" [attr.title]="clip_name">{{ clip_name }}</span>
+                  }
                   @if (take_close_timecode(item); as close_timecode) {
                     <span class="take-close-timecode">{{ close_timecode }}</span>
                   }
@@ -149,6 +192,17 @@
             >
               <ion-icon slot="icon-only" name="pencil-outline"></ion-icon>
             </ion-button>
+            @if (level === 'takes') {
+              <ion-button
+                slot="end"
+                fill="clear"
+                color="danger"
+                [attr.aria-label]="'Delete ' + item_title(item)"
+                (click)="delete_item($event, item)"
+              >
+                <ion-icon slot="icon-only" name="trash-outline"></ion-icon>
+              </ion-button>
+            }
           </ion-item>
         }
       }
@@ -251,7 +305,7 @@
       </ion-header>
 
       <ion-content class="take-form-content">
-        <form (ngSubmit)="submit_take_form()">
+        <form id="take-form" (ngSubmit)="submit_take_form()">
           <ion-list>
             <ion-item>
               <ion-input
@@ -260,6 +314,81 @@
                 type="number"
                 name="take_number"
                 [(ngModel)]="take_form_take_number"
+              ></ion-input>
+            </ion-item>
+            <ion-item>
+              <ion-select
+                labelPlacement="stacked"
+                interface="popover"
+                name="roll_id"
+                [(ngModel)]="take_form_roll_id"
+                (ionChange)="on_take_roll_changed($event.detail.value)"
+                placeholder="No roll"
+              >
+                <div slot="label" class="field-label-action">
+                  <span>Roll</span>
+                  <ion-button
+                    type="button"
+                    fill="clear"
+                    size="small"
+                    [attr.aria-label]="show_add_roll_form ? 'Hide add roll form' : 'Show add roll form'"
+                    (click)="show_add_roll_form = !show_add_roll_form; $event.stopPropagation()"
+                  >
+                    <ion-icon slot="icon-only" [name]="show_add_roll_form ? 'close-outline' : 'add-outline'"></ion-icon>
+                  </ion-button>
+                </div>
+                <ion-select-option value="">No roll</ion-select-option>
+                @for (roll of rolls; track roll.roll_id) {
+                  <ion-select-option [value]="roll.roll_id">{{ roll_label(roll) }}</ion-select-option>
+                }
+              </ion-select>
+            </ion-item>
+            @if (show_add_roll_form) {
+              <ion-item>
+                <ion-input
+                  label="Roll name"
+                  labelPlacement="stacked"
+                  name="new_roll_name"
+                  [(ngModel)]="new_roll_name"
+                  placeholder="A001"
+                  autocomplete="off"
+                ></ion-input>
+              </ion-item>
+              <ion-item>
+                <ion-input
+                  label="Card"
+                  labelPlacement="stacked"
+                  name="new_roll_card_label"
+                  [(ngModel)]="new_roll_card_label"
+                  placeholder="SxS 01"
+                  autocomplete="off"
+                ></ion-input>
+              </ion-item>
+              <ion-item lines="none">
+                <div class="add-roll-actions">
+                  <ion-button type="button" fill="clear" (click)="cancel_add_roll()">
+                    Cancel
+                  </ion-button>
+                  <ion-button
+                    type="button"
+                    fill="outline"
+                    [disabled]="!new_roll_name.trim()"
+                    (click)="add_roll_to_take_form()"
+                  >
+                    <ion-icon slot="start" name="add-outline"></ion-icon>
+                    Add Roll
+                  </ion-button>
+                </div>
+              </ion-item>
+            }
+            <ion-item>
+              <ion-input
+                label="Clip name"
+                labelPlacement="stacked"
+                name="clip_name"
+                [(ngModel)]="take_form_clip_name"
+                placeholder="Acam_0001"
+                autocomplete="off"
               ></ion-input>
             </ion-item>
             <ion-item>
@@ -371,13 +500,18 @@
             </ion-list>
           }
 
+        </form>
+      </ion-content>
+
+      <ion-footer>
+        <ion-toolbar>
           <section class="take-form-actions">
-            <ion-button type="submit">
+            <ion-button type="submit" form="take-form">
               {{ take_form_take ? 'Update' : 'Add' }}
             </ion-button>
           </section>
-        </form>
-      </ion-content>
+        </ion-toolbar>
+      </ion-footer>
     </ng-template>
   </ion-modal>
 </ion-content>

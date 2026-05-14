@@ -1,4 +1,4 @@
-export const database_schema_version = 2;
+export const database_schema_version = 4;
 
 export const default_flags = [
   { flag_id: 'good', label: 'Good', color: '#1f9d55', sort_order: 10 },
@@ -8,6 +8,7 @@ export const default_flags = [
   { flag_id: 'boom_visible', label: 'Boom visible', color: '#7c3aed', sort_order: 50 },
   { flag_id: 'focus_issue', label: 'Focus issue', color: '#be185d', sort_order: 60 },
   { flag_id: 'sound_issue', label: 'Sound issue', color: '#0f766e', sort_order: 70 },
+  { flag_id: 'end_slate', label: 'End Slate', color: '#475569', sort_order: 80 },
 ] as const;
 
 export const create_schema_sql = [
@@ -65,11 +66,40 @@ export const create_schema_sql = [
     UNIQUE (slate_id, scene_id)
   )`,
 
+  `CREATE TABLE IF NOT EXISTS media_card (
+    card_id TEXT PRIMARY KEY,
+    label TEXT NOT NULL UNIQUE,
+    media_type TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+
+  `CREATE TABLE IF NOT EXISTS roll (
+    roll_id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    shoot_day_id TEXT NOT NULL,
+    slate_id TEXT NOT NULL,
+    card_id TEXT,
+    roll_name TEXT NOT NULL,
+    last_clip_name TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (project_id) REFERENCES project(project_id) ON DELETE CASCADE,
+    FOREIGN KEY (shoot_day_id) REFERENCES shoot_day(shoot_day_id) ON DELETE CASCADE,
+    FOREIGN KEY (slate_id) REFERENCES slate(slate_id) ON DELETE CASCADE,
+    FOREIGN KEY (card_id) REFERENCES media_card(card_id) ON DELETE SET NULL,
+    UNIQUE (project_id, roll_name)
+  )`,
+
   `CREATE TABLE IF NOT EXISTS take (
     take_id TEXT PRIMARY KEY,
     shoot_day_id TEXT NOT NULL,
     slate_id TEXT NOT NULL,
     slate_scene_id TEXT NOT NULL,
+    roll_id TEXT,
+    clip_name TEXT,
     take_number INTEGER NOT NULL,
     slate_open_timecode TEXT,
     slate_close_timecode TEXT,
@@ -79,6 +109,7 @@ export const create_schema_sql = [
     FOREIGN KEY (shoot_day_id) REFERENCES shoot_day(shoot_day_id) ON DELETE CASCADE,
     FOREIGN KEY (slate_id) REFERENCES slate(slate_id) ON DELETE CASCADE,
     FOREIGN KEY (slate_scene_id) REFERENCES slate_scene(slate_scene_id) ON DELETE CASCADE,
+    FOREIGN KEY (roll_id) REFERENCES roll(roll_id) ON DELETE SET NULL,
     UNIQUE (shoot_day_id, slate_id, slate_scene_id, take_number)
   )`,
 
@@ -120,6 +151,9 @@ export const create_schema_sql = [
 
   `CREATE INDEX IF NOT EXISTS idx_take_slate_scene_id
     ON take(slate_scene_id)`,
+
+  `CREATE INDEX IF NOT EXISTS idx_roll_slate_id
+    ON roll(slate_id)`,
 
   `CREATE INDEX IF NOT EXISTS idx_take_flag_flag_id
     ON take_flag(flag_id)`,

@@ -6,6 +6,7 @@ import {
   Flag,
   Project,
   ReusableSlate,
+  Roll,
   ShootDay,
   Slate,
   SlateDatabaseService,
@@ -49,9 +50,13 @@ export class HierarchyPage implements OnInit {
   public show_new_slate_form = false;
   public new_slate_camera = 'A Cam';
   public flags: Flag[] = [];
+  public rolls: Roll[] = [];
+  public take_page_roll_id = '';
   public take_form_open = false;
   public take_form_title = 'New Take';
   public take_form_take: Take | null = null;
+  public take_form_roll_id = '';
+  public take_form_clip_name = '';
   public take_form_take_number = 1;
   public take_form_open_timecode = '';
   public take_form_close_timecode = '';
@@ -60,11 +65,17 @@ export class HierarchyPage implements OnInit {
   public show_add_flag_form = false;
   public new_flag_label = '';
   public new_flag_color = '#52525b';
+  public show_add_roll_form = false;
+  public new_roll_name = '';
+  public new_roll_card_label = '';
 
   private project: Project | null = null;
   private shoot_day: ShootDay | null = null;
   private slate: Slate | null = null;
   private slate_scene: SlateScene | null = null;
+  private initialized = false;
+  private date_prompt_shoot_day_id: string | null = null;
+  private date_prompt_shown = false;
 
   private route = inject(ActivatedRoute);
   private router = inject(Router);
@@ -74,9 +85,14 @@ export class HierarchyPage implements OnInit {
 
   async ngOnInit(): Promise<void> {
     await this.load_page();
+    this.initialized = true;
   }
 
   async ionViewWillEnter(): Promise<void> {
+    if (!this.initialized) {
+      return;
+    }
+
     await this.load_page();
   }
 
@@ -107,8 +123,41 @@ export class HierarchyPage implements OnInit {
     }
   }
 
+  async delete_item(event: Event, item: HierarchyItem): Promise<void> {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (this.level !== 'takes') {
+      return;
+    }
+
+    const take = item as Take;
+    const alert = await this.alert_controller.create({
+      header: 'Delete take?',
+      message: 'This removes the take and, if it was the latest clip on its roll, rewinds the next suggested clip name.',
+      buttons: [
+        { text: 'Cancel', role: 'cancel' },
+        {
+          text: 'Delete',
+          role: 'destructive',
+          handler: async () => {
+            await this.database.delete_take(take.take_id);
+            await this.load_page();
+          },
+        },
+      ],
+    });
+
+    await alert.present();
+  }
+
   async fake_slate_open(): Promise<void> {
     if (!this.slate_scene) {
+      return;
+    }
+
+    const clip_name = await this.get_clip_name_for_new_take();
+    if (clip_name === null) {
       return;
     }
 
@@ -117,6 +166,8 @@ export class HierarchyPage implements OnInit {
 
     await this.database.create_take({
       slate_scene_id: this.slate_scene.slate_scene_id,
+      roll_id: this.take_page_roll_id,
+      clip_name,
       take_number: next_take_number,
       slate_open_timecode: slate_event.timecode,
     });
@@ -209,6 +260,26 @@ export class HierarchyPage implements OnInit {
     return (item as Take).slate_close_timecode ?? '';
   }
 
+  take_roll(item: HierarchyItem): string {
+    if (this.level !== 'takes') {
+      return '';
+    }
+
+    return (item as Take).roll_name ?? '';
+  }
+
+  roll_label(roll: Roll): string {
+    return roll.card_label ? `${roll.roll_name} · ${roll.card_label}` : roll.roll_name;
+  }
+
+  take_clip_name(item: HierarchyItem): string {
+    if (this.level !== 'takes') {
+      return '';
+    }
+
+    return (item as Take).clip_name ?? '';
+  }
+
   take_notes(item: HierarchyItem): string {
     if (this.level !== 'takes') {
       return '';
@@ -275,10 +346,97 @@ export class HierarchyPage implements OnInit {
     this.show_add_flag_form = false;
   }
 
+  async add_roll_to_take_form(): Promise<void> {
+    if (!this.slate || !this.new_roll_name.trim()) {
+      return;
+    }
+
+    const roll = await this.database.create_roll({
+      slate_id: this.slate.slate_id,
+      roll_name: this.new_roll_name,
+      card_label: this.new_roll_card_label,
+    });
+
+    this.rolls = await this.database.list_rolls_for_slate(this.slate.slate_id);
+    this.take_form_roll_id = roll.roll_id;
+    if (!this.take_form_take && !this.take_form_clip_name) {
+      this.take_form_clip_name = await this.database.suggest_clip_name_for_roll(roll.roll_id);
+    }
+    this.cancel_add_roll();
+  }
+
+  async open_page_roll_form(): Promise<void> {
+    if (!this.slate) {
+      return;
+    }
+
+    const alert = await this.alert_controller.create({
+      header: 'Add Roll',
+      inputs: [
+        { name: 'roll_name', type: 'text', placeholder: 'Roll name', value: '' },
+        { name: 'card_label', type: 'text', placeholder: 'Card', value: '' },
+      ],
+      buttons: [
+        { text: 'Cancel', role: 'cancel' },
+        {
+          text: 'Add',
+          handler: async (values: Record<string, string>) => {
+            if (!values['roll_name']?.trim()) {
+              return false;
+            }
+
+            const roll = await this.database.create_roll({
+              slate_id: this.slate!.slate_id,
+              roll_name: values['roll_name'],
+              card_label: values['card_label'],
+            });
+            this.rolls = await this.database.list_rolls_for_slate(this.slate!.slate_id);
+            this.set_take_page_roll(roll.roll_id);
+            return true;
+          },
+        },
+      ],
+    });
+
+    await alert.present();
+  }
+
+  set_take_page_roll(roll_id: string): void {
+    this.take_page_roll_id = roll_id;
+    const storage_key = this.take_page_roll_storage_key();
+    if (!storage_key) {
+      return;
+    }
+
+    if (roll_id) {
+      localStorage.setItem(storage_key, roll_id);
+    } else {
+      localStorage.removeItem(storage_key);
+    }
+  }
+
+  cancel_add_roll(): void {
+    this.new_roll_name = '';
+    this.new_roll_card_label = '';
+    this.show_add_roll_form = false;
+  }
+
+  async on_take_roll_changed(roll_id: string): Promise<void> {
+    this.take_form_roll_id = roll_id;
+    if (this.take_form_take || !roll_id) {
+      return;
+    }
+
+    this.take_form_clip_name = await this.database.suggest_clip_name_for_roll(roll_id);
+  }
+
   async close_take_form(): Promise<void> {
     this.take_form_open = false;
     this.take_form_take = null;
+    this.take_form_roll_id = '';
+    this.take_form_clip_name = '';
     this.take_form_flag_ids = new Set<string>();
+    this.cancel_add_roll();
     this.show_add_flag_form = false;
     this.new_flag_label = '';
     this.new_flag_color = '#52525b';
@@ -296,10 +454,25 @@ export class HierarchyPage implements OnInit {
     }
 
     const flag_ids = Array.from(this.take_form_flag_ids);
+    const clip_name = this.take_form_clip_name.trim();
+    if (!clip_name) {
+      if (this.take_form_roll_id && !this.take_form_take) {
+        const prompted_clip_name = await this.prompt_for_clip_name('First clip name', 'Enter the next camera clip name for this roll.');
+        if (!prompted_clip_name) {
+          return;
+        }
+        this.take_form_clip_name = prompted_clip_name;
+      } else {
+        await this.show_message('Clip name required', 'Add a clip name before saving this take.');
+        return;
+      }
+    }
 
     if (this.take_form_take) {
       await this.database.update_take({
         take_id: this.take_form_take.take_id,
+        roll_id: this.take_form_roll_id,
+        clip_name: this.take_form_clip_name.trim(),
         take_number,
         slate_open_timecode: this.take_form_open_timecode,
         slate_close_timecode: this.take_form_close_timecode,
@@ -309,6 +482,8 @@ export class HierarchyPage implements OnInit {
     } else {
       await this.database.create_take({
         slate_scene_id: this.slate_scene!.slate_scene_id,
+        roll_id: this.take_form_roll_id,
+        clip_name: this.take_form_clip_name.trim(),
         take_number,
         slate_open_timecode: this.take_form_open_timecode,
         slate_close_timecode: this.take_form_close_timecode,
@@ -370,6 +545,7 @@ export class HierarchyPage implements OnInit {
     this.slate = slate_id ? await this.database.get_slate(slate_id) : null;
     this.slate_scene = slate_scene_id ? await this.database.get_slate_scene(slate_scene_id) : null;
     this.flags = await this.database.list_flags();
+    await this.load_take_page_rolls();
 
     if (await this.prompt_for_current_shoot_day()) {
       return;
@@ -392,9 +568,88 @@ export class HierarchyPage implements OnInit {
     this.loading = false;
   }
 
+  private async load_take_page_rolls(): Promise<void> {
+    if (this.level !== 'takes' || !this.slate) {
+      this.rolls = [];
+      this.take_page_roll_id = '';
+      return;
+    }
+
+    this.rolls = await this.database.list_rolls_for_slate(this.slate.slate_id);
+    const stored_roll_id = this.take_page_roll_storage_key()
+      ? localStorage.getItem(this.take_page_roll_storage_key()!)
+      : null;
+    const preferred_roll_id = stored_roll_id || this.take_page_roll_id || '';
+    this.take_page_roll_id = this.rolls.some((roll) => roll.roll_id === preferred_roll_id)
+      ? preferred_roll_id
+      : '';
+  }
+
+  private take_page_roll_storage_key(): string | null {
+    if (!this.project || !this.slate) {
+      return null;
+    }
+
+    return `digital-slate-selected-roll:${this.project.project_id}:${this.slate.camera.toLowerCase()}`;
+  }
+
+  private async get_clip_name_for_new_take(): Promise<string | null> {
+    if (!this.take_page_roll_id) {
+      await this.show_message('Roll required', 'Select or add a roll before opening a take so the app can assign a clip name.');
+      return null;
+    }
+
+    const suggested_clip_name = await this.database.suggest_clip_name_for_roll(this.take_page_roll_id);
+    if (suggested_clip_name) {
+      return suggested_clip_name;
+    }
+
+    return this.prompt_for_clip_name('First clip name', 'Enter the next camera clip name for this roll.');
+  }
+
+  private async prompt_for_clip_name(header: string, message: string): Promise<string | null> {
+    const alert = await this.alert_controller.create({
+      header,
+      message,
+      inputs: [
+        {
+          name: 'clip_name',
+          type: 'text',
+          placeholder: 'Acam_0001',
+        },
+      ],
+      buttons: [
+        { text: 'Cancel', role: 'cancel' },
+        {
+          text: 'Use Clip Name',
+          handler: (values: Record<string, string>) => {
+            if (!values['clip_name']?.trim()) {
+              return false;
+            }
+
+            return true;
+          },
+        },
+      ],
+    });
+
+    await alert.present();
+    const result = await alert.onDidDismiss<{ values?: Record<string, string> }>();
+    if (result.role === 'cancel') {
+      return null;
+    }
+
+    return result.data?.['values']?.['clip_name']?.trim() || null;
+  }
+
   private async prompt_for_current_shoot_day(): Promise<boolean> {
     if (this.level === 'shoot_days' || !this.project || !this.shoot_day) {
       return false;
+    }
+
+    if (this.date_prompt_shoot_day_id !== this.shoot_day.shoot_day_id) {
+      this.date_prompt_shoot_day_id = this.shoot_day.shoot_day_id;
+      this.date_prompt_shown = false;
     }
 
     const today = today_date();
@@ -402,11 +657,11 @@ export class HierarchyPage implements OnInit {
       return false;
     }
 
-    const warning_key = `digital-slate-date-warning:${this.shoot_day.shoot_day_id}:${today}`;
-    if (sessionStorage.getItem(warning_key) === 'continue') {
+    if (this.date_prompt_shown) {
       return false;
     }
 
+    this.date_prompt_shown = true;
     this.loading = false;
 
     let create_new_date = false;
@@ -418,9 +673,6 @@ export class HierarchyPage implements OnInit {
         {
           text: 'Continue',
           role: 'cancel',
-          handler: () => {
-            sessionStorage.setItem(warning_key, 'continue');
-          },
         },
         {
           text: 'Create New Date',
@@ -735,6 +987,11 @@ export class HierarchyPage implements OnInit {
       : 1;
     this.take_form_take = take ?? null;
     this.take_form_title = take ? 'Edit Take' : 'New Take';
+    this.rolls = this.slate ? await this.database.list_rolls_for_slate(this.slate.slate_id) : [];
+    this.take_form_roll_id = take?.roll_id ?? this.take_page_roll_id;
+    this.take_form_clip_name = take?.clip_name ?? (
+      this.take_form_roll_id ? await this.database.suggest_clip_name_for_roll(this.take_form_roll_id) : ''
+    );
     this.take_form_take_number = take?.take_number ?? next_take_number;
     this.take_form_open_timecode = take?.slate_open_timecode ?? '';
     this.take_form_close_timecode = take?.slate_close_timecode ?? '';

@@ -14,8 +14,9 @@ The app now has a basic working structure:
 - Fake slate open/close events that generate timecode from a 09:00:00:00 daily slate start.
 - Editable projects, shoot days, slates, scenes, and takes.
 - Take flags, including default flags and user-created custom flags.
+- Clip name tracking per take, with roll-level auto-increment and rollback on deleted takes.
 - Breadcrumb navigation through the hierarchy.
-- Search across projects, shoot days, slates, scenes, takes, notes, locations, timecode, and flags.
+- Search across projects, shoot days, slates, scenes, takes, rolls, media cards, notes, locations, timecode, and flags.
 
 Real Bluetooth connection is the next major integration point.
 
@@ -219,6 +220,34 @@ Purpose:
 - Allow one scene to appear on multiple slates.
 - Preserve separate takes per camera/slate.
 
+### Media Card
+
+Represents a reusable physical recording card, such as:
+
+```text
+SxS 01
+SxS 02
+```
+
+Cards are reusable inventory. They can be assigned to many rolls over time.
+
+### Roll
+
+Represents a named recording roll for a project, optionally tied to a reusable media card.
+
+Important fields:
+
+- project_id
+- shoot_day_id
+- slate_id
+- card_id
+- roll_name
+- last_clip_name
+- notes
+
+This allows a small pool of physical cards to be reused while preserving roll metadata per project/day/slate.
+The app can use `last_clip_name` to suggest the next camera file name for takes on the roll.
+
 ### Take
 
 Takes belong to a slate scene and are also tied to their shoot day and slate.
@@ -228,6 +257,8 @@ Important fields:
 - shoot_day_id
 - slate_id
 - slate_scene_id
+- roll_id
+- clip_name
 - take_number
 - slate_open_timecode
 - slate_close_timecode

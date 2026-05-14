@@ -35,6 +35,10 @@ ion-menu-button {
   padding: 12px 12px 4px;
 }
 
+.export-panel {
+  padding: 12px;
+}
+
 .search-panel ion-searchbar {
   padding-inline: 0;
 }
@@ -44,8 +48,33 @@ ion-menu-button {
 }
 
 .flag-filter-list,
-.search-results {
+.search-results,
+.export-panel ion-list,
+.export-preview {
   background: transparent;
+}
+
+.export-summary {
+  padding: 20px 12px;
+}
+
+.export-summary h1 {
+  margin: 0 0 10px;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.export-summary p {
+  max-width: 640px;
+  color: var(--ion-color-medium-shade);
+  line-height: 1.5;
+}
+
+.export-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 16px;
 }
 
 .flag-filter-list {

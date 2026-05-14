@@ -7,13 +7,11 @@
   margin: 0 0 12px;
   font-size: 28px;
   font-weight: 700;
-  line-height: 1.2;
 }
 
 .empty-state p {
   margin: 0 0 20px;
   color: var(--ion-color-medium-shade);
-  line-height: 1.5;
 }
 
 .breadcrumb-nav {
@@ -53,6 +51,18 @@
   padding: 16px 24px 0;
 }
 
+.take-roll-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.take-roll-control-label {
+  display: flex;
+  align-items: center;
+}
+
 .slate-state-icon {
   font-size: 20px;
   font-weight: 700;
@@ -79,6 +89,22 @@
   color: var(--ion-text-color);
   font-size: 16px;
   font-weight: 600;
+  flex: 0 0 auto;
+}
+
+.take-roll,
+.take-close-timecode {
+  flex: 0 0 auto;
+}
+
+.take-clip-name {
+  flex: 0 1 auto;
+  max-width: clamp(74px, 24vw, 156px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
 }
 
 .take-close-timecode {
@@ -87,14 +113,9 @@
 }
 
 .take-flag-list-inline {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   flex-wrap: nowrap;
   margin-top: 0;
-  overflow: hidden;
-}
-
-.take-notes {
-  margin-top: 4px;
 }
 
 .take-flag-icon {
@@ -115,12 +136,10 @@
   margin-right: 12px;
 }
 
-.flags-list-header {
-  padding-right: 8px;
-}
-
 .flags-list-title,
-.add-flag-actions {
+.field-label-action,
+.add-flag-actions,
+.add-roll-actions {
   width: 100%;
   display: flex;
   align-items: center;
@@ -134,8 +153,10 @@
   margin: 0;
 }
 
-.slate-picker-content ion-list {
-  background: transparent;
+.field-label-action ion-button {
+  min-width: 28px;
+  min-height: 28px;
+  margin: 0;
 }
 
 .take-form-content ion-list,
