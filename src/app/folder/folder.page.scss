@@ -39,6 +39,10 @@ ion-menu-button {
   padding: 12px;
 }
 
+.connection-panel {
+  padding: 12px;
+}
+
 .search-panel ion-searchbar {
   padding-inline: 0;
 }
@@ -58,23 +62,57 @@ ion-menu-button {
   padding: 20px 12px;
 }
 
-.export-summary h1 {
+.connection-summary {
+  padding: 20px 12px;
+}
+
+.export-summary h1,
+.connection-summary h1 {
   margin: 0 0 10px;
   font-size: 28px;
   font-weight: 700;
 }
 
-.export-summary p {
+.export-summary p,
+.connection-summary p {
   max-width: 640px;
   color: var(--ion-color-medium-shade);
   line-height: 1.5;
 }
 
-.export-actions {
+.export-actions,
+.connection-actions {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
   margin-top: 16px;
+}
+
+.connection-error {
+  color: var(--ion-color-danger);
+}
+
+.connection-details,
+.connection-log {
+  background: transparent;
+}
+
+.connection-log-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 12px 4px;
+}
+
+.connection-log-header h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.uuid-text {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  overflow-wrap: anywhere;
 }
 
 .flag-filter-list {

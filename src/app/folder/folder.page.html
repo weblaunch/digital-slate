@@ -107,6 +107,76 @@
         <p>{{ page_summary }}</p>
       </section>
     }
+  } @else if (folder === 'slate-connection') {
+    <section class="connection-panel">
+      <section class="connection-summary">
+        <p class="section-kicker">Bluetooth LE</p>
+        <h1>{{ ble_state_label() }}</h1>
+        <p>
+          {{ ble_status.device_name || ble_status.device_id || 'Connect a physical slate to receive JSON open and close events.' }}
+        </p>
+        @if (ble_status.last_error) {
+          <p class="connection-error">{{ ble_status.last_error }}</p>
+        }
+        <div class="connection-actions">
+          <ion-button [disabled]="ble_busy() || ble_connected()" (click)="connect_slate()">
+            <ion-icon slot="start" name="bluetooth-outline"></ion-icon>
+            Connect Slate
+          </ion-button>
+          <ion-button fill="outline" color="medium" [disabled]="ble_busy() || !ble_connected()" (click)="disconnect_slate()">
+            <ion-icon slot="start" name="close-circle-outline"></ion-icon>
+            Disconnect
+          </ion-button>
+        </div>
+      </section>
+
+      <ion-list class="connection-details">
+        <ion-item>
+          <ion-label>
+            <h2>Service UUID</h2>
+            <p class="uuid-text">{{ ble_service_uuid }}</p>
+          </ion-label>
+        </ion-item>
+        <ion-item>
+          <ion-label>
+            <h2>Event characteristic UUID</h2>
+            <p class="uuid-text">{{ ble_event_characteristic_uuid }}</p>
+          </ion-label>
+        </ion-item>
+        <ion-item>
+          <ion-label>
+            <h2>Expected payload</h2>
+            <p class="uuid-text">&#123;"type":"open","timecode":"09:14:03:12","device_id":"slate-001"&#125;</p>
+          </ion-label>
+        </ion-item>
+      </ion-list>
+
+      <section class="connection-log-header">
+        <h2>Event Log</h2>
+        <ion-button fill="clear" size="small" [disabled]="ble_log.length === 0" (click)="clear_ble_log()">
+          <ion-icon slot="icon-only" name="trash-outline"></ion-icon>
+        </ion-button>
+      </section>
+
+      <ion-list class="connection-log">
+        @if (ble_log.length === 0) {
+          <ion-item>
+            <ion-label>
+              <p>No Bluetooth events yet.</p>
+            </ion-label>
+          </ion-item>
+        } @else {
+          @for (entry of ble_log; track entry.created_at + entry.message) {
+            <ion-item>
+              <ion-label>
+                <h2>{{ entry.message }}</h2>
+                <p>{{ entry.kind }} · {{ entry.created_at | date:'HH:mm:ss' }}</p>
+              </ion-label>
+            </ion-item>
+          }
+        }
+      </ion-list>
+    </section>
   } @else if (folder === 'export') {
     <section class="export-panel">
       <ion-list>

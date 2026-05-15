@@ -1,6 +1,7 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { Component, OnDestroy, OnInit, inject } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { AlertController } from '@ionic/angular';
+import { Subscription } from 'rxjs';
 
 import {
   Flag,
@@ -13,7 +14,8 @@ import {
   SlateScene,
   Take,
 } from '../services/slate-database.service';
-import { SlateEventService } from '../services/slate-event.service';
+import { SlateBleService, SlateBleStatus } from '../services/slate-ble.service';
+import { SlateEventService, SlateHardwareEvent } from '../services/slate-event.service';
 
 type HierarchyLevel = 'shoot_days' | 'slates' | 'slate_scenes' | 'takes';
 type HierarchyItem = ShootDay | Slate | SlateScene | Take;
@@ -34,7 +36,7 @@ interface TakeFlagIcon {
   styleUrls: ['./hierarchy.page.scss'],
   standalone: false,
 })
-export class HierarchyPage implements OnInit {
+export class HierarchyPage implements OnInit, OnDestroy {
   public level: HierarchyLevel = 'shoot_days';
   public page_title = '';
   public parent_title = '';
@@ -68,6 +70,12 @@ export class HierarchyPage implements OnInit {
   public show_add_roll_form = false;
   public new_roll_name = '';
   public new_roll_card_label = '';
+  public ble_status: SlateBleStatus = {
+    state: 'idle',
+    device_id: null,
+    device_name: null,
+    last_error: null,
+  };
 
   private project: Project | null = null;
   private shoot_day: ShootDay | null = null;
@@ -76,16 +84,32 @@ export class HierarchyPage implements OnInit {
   private initialized = false;
   private date_prompt_shoot_day_id: string | null = null;
   private date_prompt_shown = false;
+  private ble_event_subscription?: Subscription;
+  private ble_status_subscription?: Subscription;
+  private mismatched_ble_device_alert_shown = false;
 
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private alert_controller = inject(AlertController);
   private database = inject(SlateDatabaseService);
+  private slate_ble = inject(SlateBleService);
   private slate_events = inject(SlateEventService);
 
   async ngOnInit(): Promise<void> {
+    this.ble_event_subscription = this.slate_ble.event$.subscribe((slate_event) => {
+      void this.handle_slate_hardware_event(slate_event);
+    });
+    this.ble_status = this.slate_ble.status;
+    this.ble_status_subscription = this.slate_ble.status$.subscribe((status) => {
+      this.ble_status = status;
+    });
     await this.load_page();
     this.initialized = true;
+  }
+
+  ngOnDestroy(): void {
+    this.ble_event_subscription?.unsubscribe();
+    this.ble_status_subscription?.unsubscribe();
   }
 
   async ionViewWillEnter(): Promise<void> {
@@ -152,45 +176,11 @@ export class HierarchyPage implements OnInit {
   }
 
   async fake_slate_open(): Promise<void> {
-    if (!this.slate_scene) {
-      return;
-    }
-
-    const clip_name = await this.get_clip_name_for_new_take();
-    if (clip_name === null) {
-      return;
-    }
-
-    const slate_event = this.slate_events.create_fake_event('open');
-    const next_take_number = await this.database.get_next_take_number(this.slate_scene.slate_scene_id);
-
-    await this.database.create_take({
-      slate_scene_id: this.slate_scene.slate_scene_id,
-      roll_id: this.take_page_roll_id,
-      clip_name,
-      take_number: next_take_number,
-      slate_open_timecode: slate_event.timecode,
-    });
-    await this.load_page();
+    await this.create_take_from_slate_event(this.slate_events.create_fake_event('open'));
   }
 
   async fake_slate_close(): Promise<void> {
-    if (!this.slate_scene) {
-      return;
-    }
-
-    const slate_event = this.slate_events.create_fake_event('close');
-    const closed_take = await this.database.close_latest_open_take({
-      slate_scene_id: this.slate_scene.slate_scene_id,
-      slate_close_timecode: slate_event.timecode,
-    });
-
-    if (!closed_take) {
-      await this.show_message('No open take', 'Open a take before sending a close event.');
-      return;
-    }
-
-    await this.load_page();
+    await this.close_take_from_slate_event(this.slate_events.create_fake_event('close'));
   }
 
   item_title(item: HierarchyItem): string {
@@ -270,6 +260,75 @@ export class HierarchyPage implements OnInit {
 
   roll_label(roll: Roll): string {
     return roll.card_label ? `${roll.roll_name} · ${roll.card_label}` : roll.roll_name;
+  }
+
+  connected_ble_label(): string {
+    return this.ble_status.device_name || this.ble_status.device_id || 'No slate connected';
+  }
+
+  slate_ble_binding_label(): string {
+    if (!this.slate?.bluetooth_device_id) {
+      return 'No Bluetooth slate bound';
+    }
+
+    return this.slate.bluetooth_device_name || this.slate.bluetooth_device_id;
+  }
+
+  slate_state_label(): string {
+    return this.slate_is_open() ? 'Open' : 'Closed';
+  }
+
+  slate_state_icon(): string {
+    return this.slate_is_open() ? '<' : '=';
+  }
+
+  slate_state_color(): string {
+    return this.slate_is_open() ? 'warning' : 'success';
+  }
+
+  connected_ble_matches_slate(): boolean {
+    return Boolean(
+      this.slate?.bluetooth_device_id
+      && this.ble_status.device_id
+      && this.slate.bluetooth_device_id === this.ble_status.device_id,
+    );
+  }
+
+  can_bind_connected_ble_slate(): boolean {
+    return Boolean(this.level === 'takes' && this.slate && this.ble_status.state === 'connected' && this.ble_status.device_id);
+  }
+
+  slate_is_open(): boolean {
+    return this.level === 'takes' && this.items.some((item) => {
+      const take = item as Take;
+      return Boolean(take.slate_open_timecode && !take.slate_close_timecode);
+    });
+  }
+
+  async bind_connected_ble_slate(): Promise<void> {
+    if (!this.slate || !this.ble_status.device_id) {
+      return;
+    }
+
+    await this.database.update_slate_device_binding({
+      slate_id: this.slate.slate_id,
+      bluetooth_device_id: this.ble_status.device_id,
+      bluetooth_device_name: this.ble_status.device_name,
+    });
+    this.slate = await this.database.get_slate(this.slate.slate_id);
+  }
+
+  async unbind_ble_slate(): Promise<void> {
+    if (!this.slate) {
+      return;
+    }
+
+    await this.database.update_slate_device_binding({
+      slate_id: this.slate.slate_id,
+      bluetooth_device_id: null,
+      bluetooth_device_name: null,
+    });
+    this.slate = await this.database.get_slate(this.slate.slate_id);
   }
 
   take_clip_name(item: HierarchyItem): string {
@@ -607,6 +666,69 @@ export class HierarchyPage implements OnInit {
     return this.prompt_for_clip_name('First clip name', 'Enter the next camera clip name for this roll.');
   }
 
+  private async handle_slate_hardware_event(slate_event: SlateHardwareEvent): Promise<void> {
+    if (this.level !== 'takes' || !this.slate_scene) {
+      return;
+    }
+
+    if (this.slate?.bluetooth_device_id && this.slate.bluetooth_device_id !== slate_event.device_id) {
+      if (!this.mismatched_ble_device_alert_shown) {
+        this.mismatched_ble_device_alert_shown = true;
+        await this.show_message(
+          'Bluetooth slate mismatch',
+          `${slate_event.device_id} sent an event, but this app slate is bound to ${this.slate_ble_binding_label()}.`,
+        );
+      }
+      return;
+    }
+
+    if (slate_event.event_type === 'open') {
+      await this.create_take_from_slate_event(slate_event);
+    } else {
+      await this.close_take_from_slate_event(slate_event);
+    }
+  }
+
+  private async create_take_from_slate_event(slate_event: SlateHardwareEvent): Promise<void> {
+    if (!this.slate_scene) {
+      return;
+    }
+
+    const clip_name = await this.get_clip_name_for_new_take();
+    if (clip_name === null) {
+      return;
+    }
+
+    const next_take_number = await this.database.get_next_take_number(this.slate_scene.slate_scene_id);
+
+    await this.database.create_take({
+      slate_scene_id: this.slate_scene.slate_scene_id,
+      roll_id: this.take_page_roll_id,
+      clip_name,
+      take_number: next_take_number,
+      slate_open_timecode: slate_event.timecode,
+    });
+    await this.load_page();
+  }
+
+  private async close_take_from_slate_event(slate_event: SlateHardwareEvent): Promise<void> {
+    if (!this.slate_scene) {
+      return;
+    }
+
+    const closed_take = await this.database.close_latest_open_take({
+      slate_scene_id: this.slate_scene.slate_scene_id,
+      slate_close_timecode: slate_event.timecode,
+    });
+
+    if (!closed_take) {
+      await this.show_message('No open take', 'Open a take before sending a close event.');
+      return;
+    }
+
+    await this.load_page();
+  }
+
   private async prompt_for_clip_name(header: string, message: string): Promise<string | null> {
     const alert = await this.alert_controller.create({
       header,
@@ -893,6 +1015,8 @@ export class HierarchyPage implements OnInit {
     await this.database.create_slate({
       shoot_day_id: this.shoot_day.shoot_day_id,
       camera: reusable_slate.camera,
+      bluetooth_device_id: reusable_slate.bluetooth_device_id,
+      bluetooth_device_name: reusable_slate.bluetooth_device_name,
     });
     await this.close_slate_picker();
     await this.load_page();

@@ -290,21 +290,26 @@ Users can also add their own flags from the take modal.
 
 ## Bluetooth Plan
 
-The app has fake slate events now. The recommended next step is to keep the app-side event contract stable and swap the fake source for a real BLE source.
+The app has fake slate events and a BLE event source. Fake and real events flow through the same app-side handling so open and close events create/update takes in the current active Takes page.
 
-Recommended app-side abstraction:
+App-side BLE abstraction:
 
 ```ts
-SlateConnectionService
-  scan()
-  connect(device_id)
+SlateBleService
+  request_and_connect()
   disconnect()
-  send_command(command)
   events$
   status$
 ```
 
-The fake event service and real BLE service should expose the same event shape.
+The BLE service subscribes to notifications and emits the same internal event shape as fake events.
+
+BLE UUIDs:
+
+```text
+Service:              7b2f0001-8f4b-4c71-9a0c-0d151a7e0001
+Event characteristic: 7b2f0002-8f4b-4c71-9a0c-0d151a7e0001
+```
 
 The physical slate is not expected to transmit app metadata such as:
 
@@ -314,6 +319,8 @@ The physical slate is not expected to transmit app metadata such as:
 - take_number
 
 The app should infer those from the active app context or from a stored device-to-slate mapping.
+
+Physical BLE devices can be bound to app slates from the Takes page. The app stores the BLE `device_id` and optional device name on the slate record. When a slate has a binding, incoming BLE events from other devices are ignored for that Takes page to avoid logging takes against the wrong camera.
 
 BLE notifications should use JSON. Minimal useful payloads:
 
@@ -328,10 +335,13 @@ The app normalizes those into internal events with:
 {
   event_type: 'open' | 'close',
   device_id: string,
+  reported_device_id?: string,
   timecode: string,
   received_at: string
 }
 ```
+
+`device_id` is the BLE connection identifier from iOS/Capacitor and is what the app uses for binding a physical device to an app slate. A JSON `device_id` sent by the slate is kept as `reported_device_id` for diagnostics, but it is not used for app-side routing.
 
 Optional JSON fields can be added without changing the core event flow:
 
@@ -341,13 +351,21 @@ Optional JSON fields can be added without changing the core event flow:
   "device_id": "slate-a",
   "timecode": "09:14:27:11",
   "sent_at": "2026-05-14T09:14:27.440Z",
-  "battery": 82
+  "battery_voltage": 7.40
 }
 ```
 
 The parser also accepts `slate_opened` and `slate_closed` as aliases for `open` and `close`.
 
-Suggested first real BLE milestone:
+The slate may publish an initial ready message so the characteristic has a harmless readable value before the first real event:
+
+```json
+{ "type": "ready", "device_id": "slate-a", "battery_voltage": 7.40 }
+```
+
+The app accepts and ignores this as a take event, while logging that the slate is ready.
+
+First real BLE milestone:
 
 1. Scan for slate devices.
 2. Connect to one slate.
@@ -359,11 +377,8 @@ Suggested first real BLE milestone:
 
 Near-term app work:
 
-- Real Bluetooth scan/connect screen.
 - Device-to-slate mapping.
 - Connection status and reconnect handling.
-- Search UI.
-- CSV and JSON export.
 
 Later app work:
 

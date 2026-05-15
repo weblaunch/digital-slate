@@ -1,5 +1,6 @@
-import { Component, inject, OnInit } from '@angular/core';
+import { Component, inject, OnDestroy, OnInit } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
+import { Subscription } from 'rxjs';
 
 import {
   ExportTake,
@@ -10,6 +11,13 @@ import {
   ShootDay,
   SlateDatabaseService,
 } from '../services/slate-database.service';
+import {
+  SlateBleLogEntry,
+  SlateBleService,
+  SlateBleStatus,
+  slate_ble_event_characteristic_uuid,
+  slate_ble_service_uuid,
+} from '../services/slate-ble.service';
 
 @Component({
   selector: 'app-folder',
@@ -17,7 +25,7 @@ import {
   styleUrls: ['./folder.page.scss'],
   standalone: false,
 })
-export class FolderPage implements OnInit {
+export class FolderPage implements OnInit, OnDestroy {
   public folder!: string;
   public page_title!: string;
   public page_summary!: string;
@@ -34,9 +42,20 @@ export class FolderPage implements OnInit {
   public export_shoot_day_id = '';
   public export_takes: ExportTake[] = [];
   public export_loading = false;
+  public ble_status: SlateBleStatus = {
+    state: 'idle',
+    device_id: null,
+    device_name: null,
+    last_error: null,
+  };
+  public ble_log: SlateBleLogEntry[] = [];
+  public ble_service_uuid = slate_ble_service_uuid;
+  public ble_event_characteristic_uuid = slate_ble_event_characteristic_uuid;
 
   private activatedRoute = inject(ActivatedRoute);
   private database = inject(SlateDatabaseService);
+  private slate_ble = inject(SlateBleService);
+  private ble_subscriptions: Subscription[] = [];
 
   async ngOnInit(): Promise<void> {
     this.folder = this.activatedRoute.snapshot.paramMap.get('id') as string;
@@ -50,7 +69,21 @@ export class FolderPage implements OnInit {
       this.export_projects = await this.database.list_projects();
       this.export_project_id = this.export_projects[0]?.project_id ?? '';
       await this.load_export_scope();
+    } else if (this.folder === 'slate-connection') {
+      this.ble_status = this.slate_ble.status;
+      this.ble_subscriptions = [
+        this.slate_ble.status$.subscribe((status) => {
+          this.ble_status = status;
+        }),
+        this.slate_ble.log$.subscribe((log) => {
+          this.ble_log = log;
+        }),
+      ];
     }
+  }
+
+  ngOnDestroy(): void {
+    this.ble_subscriptions.forEach((subscription) => subscription.unsubscribe());
   }
 
   async run_search(): Promise<void> {
@@ -225,6 +258,44 @@ export class FolderPage implements OnInit {
 
   export_day_label(day: ShootDay): string {
     return day.location ? `${format_display_date(day.date)} · ${day.location}` : format_display_date(day.date);
+  }
+
+  async connect_slate(): Promise<void> {
+    try {
+      await this.slate_ble.request_and_connect();
+    } catch {
+      // The service status/log streams carry the user-facing error.
+    }
+  }
+
+  async disconnect_slate(): Promise<void> {
+    await this.slate_ble.disconnect();
+  }
+
+  clear_ble_log(): void {
+    this.slate_ble.clear_log();
+  }
+
+  ble_connected(): boolean {
+    return this.ble_status.state === 'connected';
+  }
+
+  ble_busy(): boolean {
+    return ['initializing', 'scanning', 'connecting', 'disconnecting'].includes(this.ble_status.state);
+  }
+
+  ble_state_label(): string {
+    const labels: Record<string, string> = {
+      idle: 'Not connected',
+      initializing: 'Initializing',
+      scanning: 'Scanning',
+      connecting: 'Connecting',
+      connected: 'Connected',
+      disconnecting: 'Disconnecting',
+      error: 'Connection error',
+    };
+
+    return labels[this.ble_status.state] ?? this.ble_status.state;
   }
 
   private export_take_row(take: ExportTake): Record<string, string> {

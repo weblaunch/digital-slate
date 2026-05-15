@@ -39,6 +39,13 @@
 
   @if (level === 'takes') {
     <section class="slate-event-controls">
+      <div class="slate-state-indicator">
+        <span class="slate-state-label">Slate</span>
+        <ion-badge [color]="slate_state_color()">
+          <span class="slate-state-badge-icon">{{ slate_state_icon() }}</span>
+          {{ slate_state_label() }}
+        </ion-badge>
+      </div>
       <ion-button color="warning" (click)="fake_slate_open()">
         <span slot="start" class="slate-state-icon">&lt;</span>
         Open Slate
@@ -47,6 +54,28 @@
         <span slot="start" class="slate-state-icon">=</span>
         Close Slate
       </ion-button>
+      <div class="slate-ble-binding-control">
+        <div>
+          <span class="slate-ble-binding-label">Bluetooth</span>
+          <span class="slate-ble-binding-value">{{ slate_ble_binding_label() }}</span>
+          @if (ble_status.state === 'connected') {
+            <span class="slate-ble-connected-value">Connected: {{ connected_ble_label() }}</span>
+          }
+        </div>
+        @if (connected_ble_matches_slate()) {
+          <ion-button fill="clear" size="small" color="success" [disabled]="true">
+            Bound
+          </ion-button>
+        } @else if (can_bind_connected_ble_slate()) {
+          <ion-button fill="clear" size="small" (click)="bind_connected_ble_slate()">
+            Bind
+          </ion-button>
+        } @else if (slate_ble_binding_label() !== 'No Bluetooth slate bound') {
+          <ion-button fill="clear" size="small" color="medium" (click)="unbind_ble_slate()">
+            Unbind
+          </ion-button>
+        }
+      </div>
       <div class="take-roll-control">
         <div class="take-roll-control-label">
           <span>Roll</span>

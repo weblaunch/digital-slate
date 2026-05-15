@@ -5,17 +5,18 @@ export type SlateHardwareEventType = 'open' | 'close';
 export interface SlateHardwareEvent {
   event_type: SlateHardwareEventType;
   device_id: string;
+  reported_device_id?: string;
   timecode: string;
   received_at: string;
   raw_message?: string;
 }
 
 export interface SlateHardwareEventMessage {
-  type: SlateHardwareEventType | 'slate_opened' | 'slate_closed';
-  timecode: string;
+  type: SlateHardwareEventType | 'slate_opened' | 'slate_closed' | 'ready';
+  timecode?: string;
   device_id?: string;
   sent_at?: string;
-  battery?: number;
+  battery_voltage?: number;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -38,14 +39,28 @@ export class SlateEventService {
   }
 
   parse_json_event_message(message: string, fallback_device_id = 'unknown-slate'): SlateHardwareEvent {
+    const event = this.parse_optional_json_event_message(message, fallback_device_id);
+    if (!event) {
+      throw new Error('Slate ready message is not an open or close event.');
+    }
+
+    return event;
+  }
+
+  parse_optional_json_event_message(message: string, fallback_device_id = 'unknown-slate'): SlateHardwareEvent | null {
     const payload = parse_json_object(message);
+    if (payload['type'] === 'ready') {
+      return null;
+    }
+
     const event_type = normalize_event_type(payload['type']);
     const timecode = normalize_timecode(payload['timecode']);
-    const device_id = normalize_optional_string(payload['device_id']) || fallback_device_id;
+    const reported_device_id = normalize_optional_string(payload['device_id']);
 
     return {
       event_type,
-      device_id,
+      device_id: fallback_device_id,
+      reported_device_id: reported_device_id || undefined,
       timecode,
       received_at: new Date().toISOString(),
       raw_message: message,

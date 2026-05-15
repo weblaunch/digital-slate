@@ -37,6 +37,8 @@ export interface Slate {
   slate_id: string;
   shoot_day_id: string;
   camera: string;
+  bluetooth_device_id: string | null;
+  bluetooth_device_name: string | null;
   scene_count?: number;
   created_at: string;
   updated_at: string;
@@ -44,6 +46,8 @@ export interface Slate {
 
 export interface ReusableSlate {
   camera: string;
+  bluetooth_device_id: string | null;
+  bluetooth_device_name: string | null;
   last_used_date: string | null;
   usage_count: number;
 }
@@ -386,6 +390,26 @@ export class SlateDatabaseService {
     return this.query<ReusableSlate>(`
       SELECT
         s.camera,
+        (
+          SELECT previous_slate.bluetooth_device_id
+          FROM slate previous_slate
+          JOIN shoot_day previous_day ON previous_day.shoot_day_id = previous_slate.shoot_day_id
+          WHERE previous_day.project_id = sd.project_id
+          AND previous_slate.camera = s.camera COLLATE NOCASE
+          AND previous_slate.bluetooth_device_id IS NOT NULL
+          ORDER BY previous_day.date DESC, previous_slate.updated_at DESC
+          LIMIT 1
+        ) AS bluetooth_device_id,
+        (
+          SELECT previous_slate.bluetooth_device_name
+          FROM slate previous_slate
+          JOIN shoot_day previous_day ON previous_day.shoot_day_id = previous_slate.shoot_day_id
+          WHERE previous_day.project_id = sd.project_id
+          AND previous_slate.camera = s.camera COLLATE NOCASE
+          AND previous_slate.bluetooth_device_id IS NOT NULL
+          ORDER BY previous_day.date DESC, previous_slate.updated_at DESC
+          LIMIT 1
+        ) AS bluetooth_device_name,
         MAX(sd.date) AS last_used_date,
         COUNT(s.slate_id) AS usage_count
       FROM slate s
@@ -410,6 +434,8 @@ export class SlateDatabaseService {
   async create_slate(input: {
     shoot_day_id: string;
     camera: string;
+    bluetooth_device_id?: string | null;
+    bluetooth_device_name?: string | null;
   }): Promise<void> {
     const existing = await this.query_one<{ slate_id: string }>(
       `SELECT slate_id
@@ -426,12 +452,14 @@ export class SlateDatabaseService {
     const now = timestamp();
     await this.run(
       `INSERT INTO slate (
-        slate_id, shoot_day_id, camera, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?)`,
+        slate_id, shoot_day_id, camera, bluetooth_device_id, bluetooth_device_name, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
         create_id('slate'),
         input.shoot_day_id,
         input.camera.trim(),
+        empty_to_null(input.bluetooth_device_id),
+        empty_to_null(input.bluetooth_device_name),
         now,
         now,
       ],
@@ -450,6 +478,27 @@ export class SlateDatabaseService {
        WHERE slate_id = ?`,
       [
         input.camera.trim(),
+        timestamp(),
+        input.slate_id,
+      ],
+    );
+  }
+
+  async update_slate_device_binding(input: {
+    slate_id: string;
+    bluetooth_device_id: string | null;
+    bluetooth_device_name?: string | null;
+  }): Promise<void> {
+    await this.run(
+      `UPDATE slate
+       SET
+        bluetooth_device_id = ?,
+        bluetooth_device_name = ?,
+        updated_at = ?
+       WHERE slate_id = ?`,
+      [
+        empty_to_null(input.bluetooth_device_id),
+        empty_to_null(input.bluetooth_device_name),
         timestamp(),
         input.slate_id,
       ],
@@ -1152,12 +1201,28 @@ export class SlateDatabaseService {
       await db.execute(statement);
     }
 
+    await this.ensure_slate_device_columns(db);
     await this.ensure_take_context_columns(db);
     await this.repair_duplicate_clip_names(db);
     await db.executeSet(build_seed_default_flags_sql(timestamp()));
     this.database = db;
     await this.save_if_web();
     return db;
+  }
+
+  private async ensure_slate_device_columns(db: SQLiteDBConnection): Promise<void> {
+    const table_info = await db.query(`PRAGMA table_info('slate')`);
+    const columns = new Set((table_info.values ?? []).map((row) => String(row['name'])));
+
+    if (!columns.has('bluetooth_device_id')) {
+      await db.execute(`ALTER TABLE slate ADD COLUMN bluetooth_device_id TEXT`);
+    }
+
+    if (!columns.has('bluetooth_device_name')) {
+      await db.execute(`ALTER TABLE slate ADD COLUMN bluetooth_device_name TEXT`);
+    }
+
+    await db.execute(`CREATE INDEX IF NOT EXISTS idx_slate_bluetooth_device_id ON slate(bluetooth_device_id)`);
   }
 
   private async ensure_take_context_columns(db: SQLiteDBConnection): Promise<void> {

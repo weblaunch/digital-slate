@@ -47,8 +47,34 @@
 .slate-event-controls {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
   padding: 16px 24px 0;
+}
+
+.slate-state-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+}
+
+.slate-state-label {
+  color: var(--ion-color-medium-shade);
+  font-size: 13px;
+}
+
+.slate-state-indicator ion-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.slate-state-badge-icon {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .take-roll-control {
@@ -56,6 +82,31 @@
   align-items: center;
   justify-content: space-between;
   width: 100%;
+}
+
+.slate-ble-binding-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 34px;
+  gap: 12px;
+}
+
+.slate-ble-binding-label {
+  display: block;
+  color: var(--ion-color-medium-shade);
+  font-size: 12px;
+}
+
+.slate-ble-binding-value,
+.slate-ble-connected-value {
+  display: block;
+  font-size: 14px;
+}
+
+.slate-ble-connected-value {
+  color: var(--ion-color-medium-shade);
 }
 
 .take-roll-control-label {

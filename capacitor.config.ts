@@ -12,6 +12,14 @@ const config: CapacitorConfig = {
       iosDatabaseLocation: 'Library/CapacitorDatabase',
       iosIsEncryption: false,
       androidIsEncryption: false
+    },
+    BluetoothLe: {
+      displayStrings: {
+        scanning: 'Scanning for Digital Slate',
+        cancel: 'Cancel',
+        availableDevices: 'Available slates',
+        noDeviceFound: 'No Digital Slate found'
+      }
     }
   }
 };

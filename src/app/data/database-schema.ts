@@ -1,4 +1,4 @@
-export const database_schema_version = 4;
+export const database_schema_version = 5;
 
 export const default_flags = [
   { flag_id: 'good', label: 'Good', color: '#1f9d55', sort_order: 10 },
@@ -36,6 +36,8 @@ export const create_schema_sql = [
     slate_id TEXT PRIMARY KEY,
     shoot_day_id TEXT NOT NULL,
     camera TEXT NOT NULL,
+    bluetooth_device_id TEXT,
+    bluetooth_device_name TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (shoot_day_id) REFERENCES shoot_day(shoot_day_id) ON DELETE CASCADE
