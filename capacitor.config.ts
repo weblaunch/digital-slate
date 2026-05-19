@@ -20,6 +20,12 @@ const config: CapacitorConfig = {
         availableDevices: 'Available slates',
         noDeviceFound: 'No Digital Slate found'
       }
+    },
+    SplashScreen: {
+      launchShowDuration: 30000,
+      launchAutoHide: false,
+      backgroundColor: '#000000',
+      showSpinner: false
     }
   }
 };

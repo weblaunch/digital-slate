@@ -1,0 +1,59 @@
+.overview-header {
+  padding: 18px 24px 8px;
+}
+
+.overview-header h1 {
+  margin: 0 0 6px;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.overview-header p,
+.empty-state p {
+  margin: 0;
+  color: var(--ion-color-medium-shade);
+}
+
+.empty-state {
+  max-width: 560px;
+  padding: 24px;
+}
+
+.empty-state h1 {
+  margin: 0 0 12px;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.overview-list {
+  padding-top: 4px;
+}
+
+.overview-day {
+  --padding-start: 20px;
+}
+
+.overview-day h2 {
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.overview-scene {
+  --padding-start: 40px;
+}
+
+.overview-scene h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.overview-slate {
+  --padding-start: 62px;
+}
+
+.overview-slate h4 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}

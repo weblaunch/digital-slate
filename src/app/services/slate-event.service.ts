@@ -8,6 +8,7 @@ export interface SlateHardwareEvent {
   reported_device_id?: string;
   timecode: string;
   received_at: string;
+  inverted?: boolean;
   raw_message?: string;
 }
 
@@ -17,6 +18,8 @@ export interface SlateHardwareEventMessage {
   device_id?: string;
   sent_at?: string;
   battery_voltage?: number;
+  inverted?: boolean;
+  orientation?: 'upright' | 'inverted';
 }
 
 @Injectable({ providedIn: 'root' })
@@ -56,6 +59,7 @@ export class SlateEventService {
     const event_type = normalize_event_type(payload['type']);
     const timecode = normalize_timecode(payload['timecode']);
     const reported_device_id = normalize_optional_string(payload['device_id']);
+    const inverted = normalize_inverted(payload['inverted'], payload['orientation']);
 
     return {
       event_type,
@@ -63,6 +67,7 @@ export class SlateEventService {
       reported_device_id: reported_device_id || undefined,
       timecode,
       received_at: new Date().toISOString(),
+      inverted,
       raw_message: message,
     };
   }
@@ -100,6 +105,22 @@ const normalize_timecode = (value: unknown): string => {
 
 const normalize_optional_string = (value: unknown): string => {
   return typeof value === 'string' ? value.trim() : '';
+};
+
+const normalize_inverted = (inverted: unknown, orientation: unknown): boolean => {
+  if (typeof inverted === 'boolean') {
+    return inverted;
+  }
+
+  if (inverted === 1 || inverted === '1') {
+    return true;
+  }
+
+  if (inverted === 0 || inverted === '0') {
+    return false;
+  }
+
+  return orientation === 'inverted';
 };
 
 const slate_start_hour = 9;

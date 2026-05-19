@@ -1,4 +1,4 @@
-export const database_schema_version = 5;
+export const database_schema_version = 9;
 
 export const default_flags = [
   { flag_id: 'good', label: 'Good', color: '#1f9d55', sort_order: 10 },
@@ -43,16 +43,27 @@ export const create_schema_sql = [
     FOREIGN KEY (shoot_day_id) REFERENCES shoot_day(shoot_day_id) ON DELETE CASCADE
   )`,
 
+  `CREATE TABLE IF NOT EXISTS managed_slate (
+    managed_slate_id TEXT PRIMARY KEY,
+    camera TEXT NOT NULL UNIQUE,
+    bluetooth_device_id TEXT,
+    bluetooth_device_name TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+
   `CREATE TABLE IF NOT EXISTS scene (
     scene_id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL,
+    shoot_day_id TEXT NOT NULL,
     scene_name TEXT NOT NULL,
     location TEXT,
     time_of_day TEXT,
     notes TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    FOREIGN KEY (project_id) REFERENCES project(project_id) ON DELETE CASCADE
+    FOREIGN KEY (project_id) REFERENCES project(project_id) ON DELETE CASCADE,
+    FOREIGN KEY (shoot_day_id) REFERENCES shoot_day(shoot_day_id) ON DELETE CASCADE
   )`,
 
   `CREATE TABLE IF NOT EXISTS slate_scene (
@@ -103,6 +114,7 @@ export const create_schema_sql = [
     roll_id TEXT,
     clip_name TEXT,
     take_number INTEGER NOT NULL,
+    setup_suffix TEXT,
     slate_open_timecode TEXT,
     slate_close_timecode TEXT,
     notes TEXT,
@@ -111,8 +123,7 @@ export const create_schema_sql = [
     FOREIGN KEY (shoot_day_id) REFERENCES shoot_day(shoot_day_id) ON DELETE CASCADE,
     FOREIGN KEY (slate_id) REFERENCES slate(slate_id) ON DELETE CASCADE,
     FOREIGN KEY (slate_scene_id) REFERENCES slate_scene(slate_scene_id) ON DELETE CASCADE,
-    FOREIGN KEY (roll_id) REFERENCES roll(roll_id) ON DELETE SET NULL,
-    UNIQUE (shoot_day_id, slate_id, slate_scene_id, take_number)
+    FOREIGN KEY (roll_id) REFERENCES roll(roll_id) ON DELETE SET NULL
   )`,
 
   `CREATE TABLE IF NOT EXISTS flag (
@@ -153,6 +164,9 @@ export const create_schema_sql = [
 
   `CREATE INDEX IF NOT EXISTS idx_take_slate_scene_id
     ON take(slate_scene_id)`,
+
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_take_number_by_setup
+    ON take(shoot_day_id, slate_id, slate_scene_id, take_number, COALESCE(setup_suffix, ''))`,
 
   `CREATE INDEX IF NOT EXISTS idx_roll_slate_id
     ON roll(slate_id)`,

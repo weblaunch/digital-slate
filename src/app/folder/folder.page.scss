@@ -93,8 +93,14 @@ ion-menu-button {
 }
 
 .connection-details,
-.connection-log {
+.connection-log,
+.managed-slate-form,
+.slate-binding-list {
   background: transparent;
+}
+
+.managed-slate-form {
+  margin: 0 0 8px;
 }
 
 .connection-log-header {

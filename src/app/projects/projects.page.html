@@ -46,6 +46,9 @@
             <p>
               {{ project.shoot_day_count || 0 }}
               {{ project.shoot_day_count === 1 ? 'shoot day' : 'shoot days' }}
+              ·
+              {{ project.scene_count || 0 }}
+              {{ project.scene_count === 1 ? 'scene' : 'scenes' }}
             </p>
             @if (project.director || project.dop || project.camera_op) {
               <p>{{ project.director || project.dop || project.camera_op }}</p>
@@ -54,10 +57,29 @@
           <ion-button
             slot="end"
             fill="clear"
+            aria-label="Project overview"
+            routerDirection="forward"
+            [routerLink]="['/projects', project.project_id, 'overview']"
+            (click)="$event.stopPropagation()"
+          >
+            <ion-icon slot="icon-only" name="list-outline"></ion-icon>
+          </ion-button>
+          <ion-button
+            slot="end"
+            fill="clear"
             aria-label="Edit project"
             (click)="edit_project($event, project)"
           >
             <ion-icon slot="icon-only" name="pencil-outline"></ion-icon>
+          </ion-button>
+          <ion-button
+            slot="end"
+            fill="clear"
+            color="danger"
+            aria-label="Delete project"
+            (click)="delete_project($event, project)"
+          >
+            <ion-icon slot="icon-only" name="trash-outline"></ion-icon>
           </ion-button>
         </ion-item>
       }

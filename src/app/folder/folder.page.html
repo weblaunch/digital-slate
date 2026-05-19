@@ -119,13 +119,17 @@
           <p class="connection-error">{{ ble_status.last_error }}</p>
         }
         <div class="connection-actions">
-          <ion-button [disabled]="ble_busy() || ble_connected()" (click)="connect_slate()">
+          <ion-button [disabled]="ble_busy()" (click)="connect_slate()">
             <ion-icon slot="start" name="bluetooth-outline"></ion-icon>
-            Connect Slate
+            {{ ble_connected() ? 'Connect Another Slate' : 'Connect Slate' }}
+          </ion-button>
+          <ion-button fill="outline" [disabled]="ble_busy()" (click)="reconnect_known_slates()">
+            <ion-icon slot="start" name="refresh-outline"></ion-icon>
+            Reconnect Known
           </ion-button>
           <ion-button fill="outline" color="medium" [disabled]="ble_busy() || !ble_connected()" (click)="disconnect_slate()">
             <ion-icon slot="start" name="close-circle-outline"></ion-icon>
-            Disconnect
+            Disconnect All
           </ion-button>
         </div>
       </section>
@@ -149,6 +153,77 @@
             <p class="uuid-text">&#123;"type":"open","timecode":"09:14:03:12","device_id":"slate-001"&#125;</p>
           </ion-label>
         </ion-item>
+      </ion-list>
+
+      <section class="connection-log-header">
+        <h2>Slate Bindings</h2>
+        <ion-button fill="clear" size="small" (click)="load_slate_connection_targets()">
+          <ion-icon slot="icon-only" name="refresh-outline"></ion-icon>
+        </ion-button>
+      </section>
+
+      <form class="managed-slate-form" (ngSubmit)="add_managed_slate()">
+        <ion-item>
+          <ion-input
+            label="Slate name"
+            labelPlacement="stacked"
+            name="new_managed_slate_name"
+            [(ngModel)]="new_managed_slate_name"
+            placeholder="A Cam"
+            autocomplete="off"
+          ></ion-input>
+          <ion-button slot="end" type="submit" [disabled]="!new_managed_slate_name.trim()">
+            <ion-icon slot="start" name="add-outline"></ion-icon>
+            Add
+          </ion-button>
+        </ion-item>
+      </form>
+
+      <ion-list class="slate-binding-list">
+        @if (slate_connection_targets_loading) {
+          <ion-item>
+            <ion-label>
+              <p>Loading slate names...</p>
+            </ion-label>
+          </ion-item>
+        } @else if (slate_connection_targets.length === 0) {
+          <ion-item>
+            <ion-label>
+              <h2>No slate names yet</h2>
+              <p>Add A Cam, B Cam, or another slate name here first.</p>
+            </ion-label>
+          </ion-item>
+        } @else {
+          @for (target of slate_connection_targets; track target.camera) {
+            <ion-item>
+              <ion-label>
+                <h2>{{ target.camera }}</h2>
+                <p>
+                  {{ slate_target_device_label(target) }}
+                  @if (slate_target_connected(target)) {
+                    · Connected
+                  }
+                </p>
+                @if (target.last_used_date) {
+                  <p>Last used {{ display_date(target.last_used_date) }} · {{ target.usage_count }} records</p>
+                }
+              </ion-label>
+              @if (target.bluetooth_device_id) {
+                <ion-button slot="end" fill="clear" color="medium" (click)="unbind_device_from_slate(target.camera)">
+                  Unbind
+                </ion-button>
+              }
+              <ion-button
+                slot="end"
+                fill="outline"
+                [disabled]="!ble_connected() || !ble_status.device_id"
+                (click)="bind_connected_device_to_slate(target.camera)"
+              >
+                Bind
+              </ion-button>
+            </ion-item>
+          }
+        }
       </ion-list>
 
       <section class="connection-log-header">
@@ -216,16 +291,16 @@
         <p class="section-kicker">Resolve Prep</p>
         <h1>{{ export_loading ? 'Preparing export...' : export_count_label() }}</h1>
         <p>
-          Exports source clip names, suggested Scene/Take names, slate open and close timecode, trim-out timecode, flags, notes, rolls, and cards.
+          Exports source clip names, suggested Scene/Take names, slate open and close timecode, trim-in timecode, flags, notes, rolls, and cards.
         </p>
         <div class="export-actions">
-          <ion-button [disabled]="export_loading || export_takes.length === 0" (click)="download_export_csv()">
-            <ion-icon slot="start" name="download-outline"></ion-icon>
-            CSV
+          <ion-button [disabled]="export_loading || export_sharing || export_takes.length === 0" (click)="share_export_csv()">
+            <ion-icon slot="start" name="share-outline"></ion-icon>
+            Share CSV
           </ion-button>
-          <ion-button fill="outline" [disabled]="export_loading || export_takes.length === 0" (click)="download_export_json()">
-            <ion-icon slot="start" name="code-download-outline"></ion-icon>
-            JSON
+          <ion-button fill="outline" [disabled]="export_loading || export_sharing || export_takes.length === 0" (click)="share_export_json()">
+            <ion-icon slot="start" name="share-social-outline"></ion-icon>
+            Share JSON
           </ion-button>
         </div>
       </section>
@@ -235,8 +310,8 @@
           @for (take of export_takes.slice(0, 8); track take.take_id) {
             <ion-item>
               <ion-label>
-                <h2>{{ take.clip_name || 'No clip name' }} → Sc{{ take.scene_name }} T{{ take.take_number < 10 ? '0' + take.take_number : take.take_number }}</h2>
-                <p>{{ take.camera }} · {{ take.roll_name || 'No reel' }} · {{ take.slate_close_timecode || 'No close TC' }}</p>
+                <h2>{{ take.clip_name || 'No clip name' }} → {{ export_suggested_clip_name(take) }}</h2>
+                <p>{{ display_date(take.shoot_date) }} · {{ export_take_timecode(take) }} · {{ take.camera }} · {{ take.roll_name || 'No reel' }}</p>
                 @if (take.flags) {
                   <p>{{ take.flags }}</p>
                 }

@@ -4,11 +4,13 @@
       <ion-menu-button></ion-menu-button>
     </ion-buttons>
     <ion-title>{{ page_title }}</ion-title>
-    <ion-buttons slot="end">
-      <ion-button [attr.aria-label]="add_label" (click)="add_item()">
-        <ion-icon slot="icon-only" name="add-outline"></ion-icon>
-      </ion-button>
-    </ion-buttons>
+    @if (level !== 'takes') {
+      <ion-buttons slot="end">
+        <ion-button [attr.aria-label]="add_label" (click)="add_item()">
+          <ion-icon slot="icon-only" name="add-outline"></ion-icon>
+        </ion-button>
+      </ion-buttons>
+    }
   </ion-toolbar>
 </ion-header>
 
@@ -23,7 +25,7 @@
     <nav class="breadcrumb-nav" aria-label="Breadcrumb">
       @for (breadcrumb of breadcrumbs; track breadcrumb.label) {
         @if (breadcrumb.link) {
-          <ion-button fill="clear" size="small" [routerLink]="breadcrumb.link">
+          <ion-button fill="clear" size="small" routerDirection="back" [routerLink]="breadcrumb.link">
             {{ breadcrumb.label }}
           </ion-button>
         } @else {
@@ -38,63 +40,103 @@
   }
 
   @if (level === 'takes') {
+    <ion-fab class="capture-fab" vertical="top" horizontal="end" slot="fixed">
+      <ion-fab-button
+        class="record-capture-fab-button"
+        [class.is-capturing]="capture_enabled"
+        [class.needs-capture]="capture_button_needs_attention()"
+        [attr.aria-label]="capture_button_label()"
+        (click)="toggle_capture()"
+      >
+        <ion-icon [name]="capture_enabled ? 'radio-button-on-outline' : 'radio-button-off-outline'"></ion-icon>
+      </ion-fab-button>
+    </ion-fab>
+
     <section class="slate-event-controls">
-      <div class="slate-state-indicator">
-        <span class="slate-state-label">Slate</span>
-        <ion-badge [color]="slate_state_color()">
-          <span class="slate-state-badge-icon">{{ slate_state_icon() }}</span>
-          {{ slate_state_label() }}
-        </ion-badge>
-      </div>
-      <ion-button color="warning" (click)="fake_slate_open()">
-        <span slot="start" class="slate-state-icon">&lt;</span>
-        Open Slate
-      </ion-button>
-      <ion-button color="success" (click)="fake_slate_close()">
-        <span slot="start" class="slate-state-icon">=</span>
-        Close Slate
-      </ion-button>
-      <div class="slate-ble-binding-control">
-        <div>
-          <span class="slate-ble-binding-label">Bluetooth</span>
-          <span class="slate-ble-binding-value">{{ slate_ble_binding_label() }}</span>
-          @if (ble_status.state === 'connected') {
-            <span class="slate-ble-connected-value">Connected: {{ connected_ble_label() }}</span>
-          }
-        </div>
-        @if (connected_ble_matches_slate()) {
-          <ion-button fill="clear" size="small" color="success" [disabled]="true">
-            Bound
-          </ion-button>
-        } @else if (can_bind_connected_ble_slate()) {
-          <ion-button fill="clear" size="small" (click)="bind_connected_ble_slate()">
-            Bind
-          </ion-button>
-        } @else if (slate_ble_binding_label() !== 'No Bluetooth slate bound') {
-          <ion-button fill="clear" size="small" color="medium" (click)="unbind_ble_slate()">
-            Unbind
-          </ion-button>
+      <div class="slate-tab-row">
+        @if (slate_allocations.length > 0) {
+          <div class="slate-preview-list" role="tablist" aria-label="Scene slates">
+            @for (allocation of slate_allocations; track allocation.slate_scene_id) {
+              <button
+                type="button"
+                class="slate-preview-card"
+                role="tab"
+                [class.is-active]="allocation.slate_scene_id === active_slate_scene_id"
+                [class.is-connected]="allocation_connected(allocation)"
+                [class.is-capturing]="capture_enabled && allocation.slate_scene_id === active_slate_scene_id"
+                [class.is-open]="allocation_is_open(allocation)"
+                [class.is-inverted]="allocation_inverted(allocation)"
+                [attr.aria-selected]="allocation.slate_scene_id === active_slate_scene_id"
+                (click)="select_slate_allocation(allocation.slate_scene_id)"
+              >
+                <span class="slate-preview-art" aria-hidden="true">
+                  <svg viewBox="0 0 1000 1000" focusable="false">
+                    <rect class="slate-preview-fill" x="78.69" y="471.69" width="852.75" height="475.35"></rect>
+                    <use class="slate-preview-clapper" href="assets/slate.svg#clapper"></use>
+                    <use class="slate-preview-body" href="assets/slate.svg#slate"></use>
+                  </svg>
+                </span>
+                <span class="slate-preview-text">
+                  <span class="slate-preview-label">{{ allocation_label(allocation) }}</span>
+                </span>
+                @if (unread_take_count(allocation) > 0 && allocation.slate_scene_id !== active_slate_scene_id) {
+                  <ion-badge color="primary">{{ unread_take_count(allocation) }}</ion-badge>
+                }
+                <span class="slate-preview-timecode">{{ allocation_timecode(allocation) }}</span>
+              </button>
+            }
+          </div>
         }
-      </div>
-      <div class="take-roll-control">
-        <div class="take-roll-control-label">
-          <span>Roll</span>
-          <ion-button fill="clear" size="small" [attr.aria-label]="'Add Roll'" (click)="open_page_roll_form()">
-            <ion-icon slot="icon-only" name="add-outline"></ion-icon>
-          </ion-button>
-        </div>
-        <ion-select
-          class="take-roll-select"
-          interface="popover"
-          [ngModel]="take_page_roll_id"
-          (ionChange)="set_take_page_roll($event.detail.value)"
-          placeholder="No roll"
+        <ion-button
+          class="add-slate-tab-button"
+          fill="outline"
+          [attr.aria-label]="'Add Slate'"
+          (click)="open_scene_slate_picker()"
         >
-          <ion-select-option value="">No roll</ion-select-option>
-          @for (roll of rolls; track roll.roll_id) {
-            <ion-select-option [value]="roll.roll_id">{{ roll_label(roll) }}</ion-select-option>
-          }
-        </ion-select>
+          <ion-icon slot="icon-only" name="add-outline"></ion-icon>
+        </ion-button>
+      </div>
+      @if (capture_status_message) {
+        <p class="capture-status">{{ capture_status_message }}</p>
+      }
+      <div class="take-context-row">
+        <div class="take-roll-control take-roll-control-roll">
+          <div class="take-roll-control-label">
+            <span>Roll</span>
+            <ion-button fill="clear" size="small" [attr.aria-label]="'Add Roll'" (click)="open_page_roll_form()">
+              <ion-icon slot="icon-only" name="add-outline"></ion-icon>
+            </ion-button>
+          </div>
+          <ion-select
+            class="take-roll-select"
+            interface="popover"
+            [ngModel]="take_page_roll_id"
+            (ionChange)="set_take_page_roll($event.detail.value)"
+            placeholder="No roll"
+          >
+            <ion-select-option value="">No roll</ion-select-option>
+            @for (roll of rolls; track roll.roll_id) {
+              <ion-select-option [value]="roll.roll_id">{{ roll_label(roll) }}</ion-select-option>
+            }
+          </ion-select>
+        </div>
+        <div class="take-roll-control take-roll-control-setup">
+          <div class="take-roll-control-label">
+            <span>Setup</span>
+          </div>
+          <ion-select
+            class="take-roll-select"
+            interface="popover"
+            [ngModel]="take_page_setup_suffix"
+            (ionChange)="set_take_page_setup_suffix($event.detail.value)"
+            placeholder="None"
+          >
+            <ion-select-option value="">None</ion-select-option>
+            @for (setup of setup_suffix_options; track setup) {
+              <ion-select-option [value]="setup">{{ setup }}</ion-select-option>
+            }
+          </ion-select>
+        </div>
       </div>
     </section>
   }
@@ -108,11 +150,15 @@
   } @else if (items.length === 0) {
     <section class="empty-state">
       <h1>{{ empty_title }}</h1>
-      <p>{{ empty_summary }}</p>
-      <ion-button (click)="add_item()">
-        <ion-icon slot="start" name="add-outline"></ion-icon>
-        {{ add_label }}
-      </ion-button>
+      @if (empty_summary) {
+        <p>{{ empty_summary }}</p>
+      }
+      @if (level !== 'takes') {
+        <ion-button (click)="add_item()">
+          <ion-icon slot="start" name="add-outline"></ion-icon>
+          {{ add_label }}
+        </ion-button>
+      }
     </section>
   } @else {
     <ion-list>
@@ -123,6 +169,9 @@
               @if (level === 'takes') {
                 <div class="take-summary-line">
                   <span class="take-number">{{ item_title(item) }}</span>
+                  @if (take_setup(item); as setup) {
+                    <span class="take-setup">{{ setup }}</span>
+                  }
                   @if (take_roll(item); as roll) {
                     <span class="take-roll">{{ roll }}</span>
                   }
@@ -152,7 +201,9 @@
                 }
               } @else {
                 <h2>{{ item_title(item) }}</h2>
-                <p>{{ item_subtitle(item) }}</p>
+                @if (item_subtitle(item); as subtitle) {
+                  <p>{{ subtitle }}</p>
+                }
               }
             </ion-label>
             <ion-button
@@ -163,17 +214,15 @@
             >
               <ion-icon slot="icon-only" name="pencil-outline"></ion-icon>
             </ion-button>
-            @if (level === 'takes') {
-              <ion-button
-                slot="end"
-                fill="clear"
-                color="danger"
-                [attr.aria-label]="'Delete ' + item_title(item)"
-                (click)="delete_item($event, item)"
-              >
-                <ion-icon slot="icon-only" name="trash-outline"></ion-icon>
-              </ion-button>
-            }
+            <ion-button
+              slot="end"
+              fill="clear"
+              color="danger"
+              [attr.aria-label]="'Delete ' + item_title(item)"
+              (click)="delete_item($event, item)"
+            >
+              <ion-icon slot="icon-only" name="trash-outline"></ion-icon>
+            </ion-button>
           </ion-item>
         } @else {
           <ion-item>
@@ -181,6 +230,9 @@
               @if (level === 'takes') {
                 <div class="take-summary-line">
                   <span class="take-number">{{ item_title(item) }}</span>
+                  @if (take_setup(item); as setup) {
+                    <span class="take-setup">{{ setup }}</span>
+                  }
                   @if (take_roll(item); as roll) {
                     <span class="take-roll">{{ roll }}</span>
                   }
@@ -210,7 +262,9 @@
                 }
               } @else {
                 <h2>{{ item_title(item) }}</h2>
-                <p>{{ item_subtitle(item) }}</p>
+                @if (item_subtitle(item); as subtitle) {
+                  <p>{{ subtitle }}</p>
+                }
               }
             </ion-label>
             <ion-button
@@ -221,17 +275,15 @@
             >
               <ion-icon slot="icon-only" name="pencil-outline"></ion-icon>
             </ion-button>
-            @if (level === 'takes') {
-              <ion-button
-                slot="end"
-                fill="clear"
-                color="danger"
-                [attr.aria-label]="'Delete ' + item_title(item)"
-                (click)="delete_item($event, item)"
-              >
-                <ion-icon slot="icon-only" name="trash-outline"></ion-icon>
-              </ion-button>
-            }
+            <ion-button
+              slot="end"
+              fill="clear"
+              color="danger"
+              [attr.aria-label]="'Delete ' + item_title(item)"
+              (click)="delete_item($event, item)"
+            >
+              <ion-icon slot="icon-only" name="trash-outline"></ion-icon>
+            </ion-button>
           </ion-item>
         }
       }
@@ -270,7 +322,7 @@
                       @if (reusable_slate.last_used_date) {
                         Last used {{ display_date(reusable_slate.last_used_date) }}
                       } @else {
-                        Previously used on this project
+                        Managed slate
                       }
                     </p>
                   </ion-label>
@@ -278,44 +330,11 @@
                 </ion-item>
               }
             </ion-list>
-          }
-
-          @if (!show_new_slate_form) {
-            <section class="new-slate-action">
-              <ion-button expand="block" fill="outline" (click)="show_new_slate_form = true">
-                <ion-icon slot="start" name="add-outline"></ion-icon>
-                Add New Slate
-              </ion-button>
-            </section>
           } @else {
-            <form class="new-slate-form" (ngSubmit)="submit_new_slate()">
-              <ion-list>
-                <ion-list-header>
-                  <ion-label>New Slate</ion-label>
-                </ion-list-header>
-                <ion-item>
-                  <ion-input
-                    label="Camera"
-                    labelPlacement="stacked"
-                    name="camera"
-                    [(ngModel)]="new_slate_camera"
-                    placeholder="A Cam"
-                    autocomplete="off"
-                  ></ion-input>
-                </ion-item>
-              </ion-list>
-
-              <section class="new-slate-actions">
-                @if (reusable_slates.length > 0) {
-                  <ion-button type="button" fill="clear" (click)="show_new_slate_form = false">
-                    Existing Slates
-                  </ion-button>
-                }
-                <ion-button type="submit" [disabled]="!new_slate_camera.trim()">
-                  Add
-                </ion-button>
-              </section>
-            </form>
+            <section class="empty-state">
+              <h1>No managed slates</h1>
+              <p>Add A Cam, B Cam, or another slate in Slate Management first.</p>
+            </section>
           }
         }
       </ion-content>
@@ -344,6 +363,22 @@
                 name="take_number"
                 [(ngModel)]="take_form_take_number"
               ></ion-input>
+            </ion-item>
+            <ion-item>
+              <ion-select
+                label="Setup"
+                labelPlacement="stacked"
+                interface="popover"
+                name="setup_suffix"
+                [(ngModel)]="take_form_setup_suffix"
+                (ionChange)="on_take_form_setup_changed($event.detail.value)"
+                placeholder="None"
+              >
+                <ion-select-option value="">None</ion-select-option>
+                @for (setup of setup_suffix_options; track setup) {
+                  <ion-select-option [value]="setup">{{ setup }}</ion-select-option>
+                }
+              </ion-select>
             </ion-item>
             <ion-item>
               <ion-select

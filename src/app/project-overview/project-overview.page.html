@@ -1,0 +1,107 @@
+<ion-header [translucent]="true">
+  <ion-toolbar>
+    <ion-buttons slot="start">
+      <ion-menu-button></ion-menu-button>
+    </ion-buttons>
+    <ion-title>Project Overview</ion-title>
+  </ion-toolbar>
+</ion-header>
+
+<ion-content [fullscreen]="true">
+  <ion-header collapse="condense">
+    <ion-toolbar>
+      <ion-title size="large">Overview</ion-title>
+    </ion-toolbar>
+  </ion-header>
+
+  @if (loading) {
+    <ion-list>
+      <ion-item>
+        <ion-label>Loading overview...</ion-label>
+      </ion-item>
+    </ion-list>
+  } @else if (!project) {
+    <section class="empty-state">
+      <h1>Project not found</h1>
+      <p>Return to Projects and choose another project.</p>
+    </section>
+  } @else {
+    <section class="overview-header">
+      <h1>{{ project.name }}</h1>
+      <p>
+        {{ count_label(project.shoot_day_count, 'shoot day', 'shoot days') }}
+        ·
+        {{ count_label(project.scene_count, 'scene', 'scenes') }}
+      </p>
+    </section>
+
+    @if (shoot_days.length === 0) {
+      <section class="empty-state">
+        <h1>No shoot days yet</h1>
+        <p>Add shoot days before the project has a breakdown.</p>
+      </section>
+    } @else {
+      <ion-list class="overview-list">
+        @for (shoot_day of shoot_days; track shoot_day.shoot_day_id) {
+          <ion-item
+            class="overview-day"
+            detail="true"
+            [routerLink]="shoot_day_link(shoot_day)"
+          >
+            <ion-label>
+              <h2>{{ display_date(shoot_day.date) }}</h2>
+              <p>
+                {{ count_label(shoot_day.scene_count, 'scene', 'scenes') }}
+                ·
+                {{ count_label(shoot_day.slate_count, 'slate', 'slates') }}
+                ·
+                {{ count_label(shoot_day.take_count, 'take', 'takes') }}
+              </p>
+              @if (shoot_day.location) {
+                <p>{{ shoot_day.location }}</p>
+              }
+            </ion-label>
+          </ion-item>
+
+          @for (scene of shoot_day.scenes; track scene.scene_id) {
+            <ion-item
+              class="overview-scene"
+              detail="true"
+              [routerLink]="scene_link(shoot_day, scene)"
+            >
+              <ion-label>
+                <h3>{{ scene.scene_name }}</h3>
+                <p>
+                  {{ count_label(scene.slate_count, 'slate', 'slates') }}
+                  ·
+                  {{ count_label(scene.take_count, 'take', 'takes') }}
+                </p>
+                @if (scene_context(scene); as context) {
+                  <p>{{ context }}</p>
+                }
+              </ion-label>
+            </ion-item>
+
+            @for (slate of scene.slates; track slate.slate_scene_id) {
+              <ion-item
+                class="overview-slate"
+                detail="true"
+                [routerLink]="slate_link(shoot_day, slate)"
+              >
+                <ion-label>
+                  <h4>{{ slate.camera }}</h4>
+                  <p>
+                    {{ count_label(slate.take_count, 'take', 'takes') }}
+                    @if (slate.open_take_count > 0) {
+                      · {{ count_label(slate.open_take_count, 'open take', 'open takes') }}
+                    }
+                  </p>
+                </ion-label>
+              </ion-item>
+            }
+          }
+        }
+      </ion-list>
+    }
+  }
+</ion-content>

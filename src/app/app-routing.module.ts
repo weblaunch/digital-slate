@@ -12,9 +12,23 @@ const routes: Routes = [
     loadChildren: () => import('./projects/projects.module').then(m => m.ProjectsPageModule)
   },
   {
+    path: 'projects/:project_id/overview',
+    loadChildren: () => import('./project-overview/project-overview.module').then(m => m.ProjectOverviewPageModule)
+  },
+  {
     path: 'projects/:project_id/shoot-days',
     loadChildren: () => import('./hierarchy/hierarchy.module').then(m => m.HierarchyPageModule),
     data: { level: 'shoot_days' }
+  },
+  {
+    path: 'projects/:project_id/shoot-days/:shoot_day_id/scenes',
+    loadChildren: () => import('./hierarchy/hierarchy.module').then(m => m.HierarchyPageModule),
+    data: { level: 'slate_scenes' }
+  },
+  {
+    path: 'projects/:project_id/shoot-days/:shoot_day_id/scenes/:scene_id/takes',
+    loadChildren: () => import('./hierarchy/hierarchy.module').then(m => m.HierarchyPageModule),
+    data: { level: 'takes' }
   },
   {
     path: 'projects/:project_id/shoot-days/:shoot_day_id/slates',

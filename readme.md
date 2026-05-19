@@ -351,9 +351,12 @@ Optional JSON fields can be added without changing the core event flow:
   "device_id": "slate-a",
   "timecode": "09:14:27:11",
   "sent_at": "2026-05-14T09:14:27.440Z",
-  "battery_voltage": 7.40
+  "battery_voltage": 7.40,
+  "orientation": "upright"
 }
 ```
+
+The app also accepts `orientation: "inverted"` or `inverted: true`, `1`, or `"1"`. An inverted close event automatically applies the `End Slate` flag to the take. End-slate takes are exported without a trim-out timecode.
 
 The parser also accepts `slate_opened` and `slate_closed` as aliases for `open` and `close`.
 
@@ -364,6 +367,14 @@ The slate may publish an initial ready message so the characteristic has a harml
 ```
 
 The app accepts and ignores this as a take event, while logging that the slate is ready.
+
+## Capture Workflow
+
+Scenes are managed at shoot-day level. A scene can allocate only the slates that are rolling for that scene, so A Cam and B Cam can be included independently.
+
+The Takes page is scene-first and shows one tab per allocated slate. Each tab shows the slate label, connected/disconnected state, open/closed state, and an `ion-badge` count for takes captured while that slate tab was inactive.
+
+The operator uses a single scene-level Capture button. BLE open and close events are ignored unless Capture is active. Once the app receives a close event for a captured take, Capture is automatically disabled.
 
 First real BLE milestone:
 

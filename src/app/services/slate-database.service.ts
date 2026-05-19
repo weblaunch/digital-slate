@@ -19,6 +19,7 @@ export interface Project {
   dop: string | null;
   camera_op: string | null;
   shoot_day_count?: number;
+  scene_count?: number;
   created_at: string;
   updated_at: string;
 }
@@ -29,6 +30,7 @@ export interface ShootDay {
   date: string;
   location: string | null;
   slate_count?: number;
+  scene_count?: number;
   created_at: string;
   updated_at: string;
 }
@@ -44,7 +46,32 @@ export interface Slate {
   updated_at: string;
 }
 
+export interface SceneSummary {
+  scene_id: string;
+  project_id: string;
+  shoot_day_id: string;
+  scene_name: string;
+  location: string | null;
+  time_of_day: string | null;
+  notes: string | null;
+  slate_count?: number;
+  take_count?: number;
+  open_take_count?: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ReusableSlate {
+  managed_slate_id?: string;
+  camera: string;
+  bluetooth_device_id: string | null;
+  bluetooth_device_name: string | null;
+  last_used_date: string | null;
+  usage_count: number;
+}
+
+export interface SlateConnectionTarget {
+  managed_slate_id: string;
   camera: string;
   bluetooth_device_id: string | null;
   bluetooth_device_name: string | null;
@@ -56,12 +83,17 @@ export interface SlateScene {
   slate_scene_id: string;
   slate_id: string;
   scene_id: string;
+  shoot_day_id?: string;
+  camera?: string;
+  bluetooth_device_id?: string | null;
+  bluetooth_device_name?: string | null;
   scene_name: string;
   location: string | null;
   time_of_day: string | null;
   notes: string | null;
   scene_order: number;
   take_count?: number;
+  open_take_count?: number;
   created_at: string;
   updated_at: string;
 }
@@ -76,6 +108,7 @@ export interface Take {
   card_label?: string | null;
   clip_name: string | null;
   take_number: number;
+  setup_suffix: string | null;
   slate_open_timecode: string | null;
   slate_close_timecode: string | null;
   notes: string | null;
@@ -155,11 +188,42 @@ export interface ExportTake {
   roll_name: string | null;
   card_label: string | null;
   clip_name: string | null;
+  setup_suffix: string | null;
   slate_open_timecode: string | null;
   slate_close_timecode: string | null;
   notes: string | null;
   flags: string | null;
   flag_ids: string | null;
+}
+
+export interface ProjectOverviewShootDay {
+  shoot_day_id: string;
+  project_id: string;
+  date: string;
+  location: string | null;
+  scene_count: number;
+  slate_count: number;
+  take_count: number;
+}
+
+export interface ProjectOverviewScene {
+  scene_id: string;
+  shoot_day_id: string;
+  scene_name: string;
+  location: string | null;
+  time_of_day: string | null;
+  slate_count: number;
+  take_count: number;
+}
+
+export interface ProjectOverviewSlate {
+  slate_scene_id: string;
+  slate_id: string;
+  scene_id: string;
+  shoot_day_id: string;
+  camera: string;
+  take_count: number;
+  open_take_count: number;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -189,9 +253,11 @@ export class SlateDatabaseService {
     const result = await db.query(`
       SELECT
         p.*,
-        COUNT(sd.shoot_day_id) AS shoot_day_count
+        COUNT(DISTINCT sd.shoot_day_id) AS shoot_day_count,
+        COUNT(DISTINCT sc.scene_id) AS scene_count
       FROM project p
       LEFT JOIN shoot_day sd ON sd.project_id = p.project_id
+      LEFT JOIN scene sc ON sc.project_id = p.project_id
       GROUP BY p.project_id
       ORDER BY p.updated_at DESC, p.name COLLATE NOCASE ASC
     `);
@@ -224,6 +290,7 @@ export class SlateDatabaseService {
         r.roll_name,
         mc.label AS card_label,
         t.clip_name,
+        t.setup_suffix,
         t.slate_open_timecode,
         t.slate_close_timecode,
         t.notes,
@@ -242,8 +309,74 @@ export class SlateDatabaseService {
       WHERE p.project_id = ?
         ${shoot_day_filter}
       GROUP BY t.take_id
-      ORDER BY sd.date ASC, s.camera COLLATE NOCASE ASC, ss.scene_order ASC, t.take_number ASC
+      ORDER BY
+        sd.date ASC,
+        COALESCE(t.slate_open_timecode, t.slate_close_timecode, '') ASC,
+        t.created_at ASC,
+        s.camera COLLATE NOCASE ASC,
+        ss.scene_order ASC,
+        t.take_number ASC
     `, values);
+  }
+
+  async list_project_overview_shoot_days(project_id: string): Promise<ProjectOverviewShootDay[]> {
+    return this.query<ProjectOverviewShootDay>(`
+      SELECT
+        sd.shoot_day_id,
+        sd.project_id,
+        sd.date,
+        sd.location,
+        COUNT(DISTINCT sc.scene_id) AS scene_count,
+        COUNT(DISTINCT s.slate_id) AS slate_count,
+        COUNT(DISTINCT t.take_id) AS take_count
+      FROM shoot_day sd
+      LEFT JOIN scene sc ON sc.shoot_day_id = sd.shoot_day_id
+      LEFT JOIN slate s ON s.shoot_day_id = sd.shoot_day_id
+      LEFT JOIN slate_scene ss ON ss.scene_id = sc.scene_id AND ss.active = 1
+      LEFT JOIN take t ON t.slate_scene_id = ss.slate_scene_id
+      WHERE sd.project_id = ?
+      GROUP BY sd.shoot_day_id
+      ORDER BY sd.date DESC, sd.created_at DESC
+    `, [project_id]);
+  }
+
+  async list_project_overview_scenes(project_id: string): Promise<ProjectOverviewScene[]> {
+    return this.query<ProjectOverviewScene>(`
+      SELECT
+        sc.scene_id,
+        sc.shoot_day_id,
+        sc.scene_name,
+        sc.location,
+        sc.time_of_day,
+        COUNT(DISTINCT ss.slate_id) AS slate_count,
+        COUNT(DISTINCT t.take_id) AS take_count
+      FROM scene sc
+      LEFT JOIN slate_scene ss ON ss.scene_id = sc.scene_id AND ss.active = 1
+      LEFT JOIN take t ON t.slate_scene_id = ss.slate_scene_id
+      WHERE sc.project_id = ?
+      GROUP BY sc.scene_id
+      ORDER BY sc.created_at ASC, sc.scene_name COLLATE NOCASE ASC
+    `, [project_id]);
+  }
+
+  async list_project_overview_slates(project_id: string): Promise<ProjectOverviewSlate[]> {
+    return this.query<ProjectOverviewSlate>(`
+      SELECT
+        ss.slate_scene_id,
+        ss.slate_id,
+        ss.scene_id,
+        s.shoot_day_id,
+        s.camera,
+        COUNT(t.take_id) AS take_count,
+        SUM(CASE WHEN t.slate_open_timecode IS NOT NULL AND t.slate_close_timecode IS NULL THEN 1 ELSE 0 END) AS open_take_count
+      FROM slate_scene ss
+      JOIN slate s ON s.slate_id = ss.slate_id
+      JOIN shoot_day sd ON sd.shoot_day_id = s.shoot_day_id
+      LEFT JOIN take t ON t.slate_scene_id = ss.slate_scene_id
+      WHERE sd.project_id = ? AND ss.active = 1
+      GROUP BY ss.slate_scene_id
+      ORDER BY s.camera COLLATE NOCASE ASC
+    `, [project_id]);
   }
 
   async create_project(input: {
@@ -300,13 +433,75 @@ export class SlateDatabaseService {
     return this.query_one<Project>('SELECT * FROM project WHERE project_id = ?', [project_id]);
   }
 
+  async delete_project(project_id: string): Promise<void> {
+    const db = await this.init();
+    await db.executeSet([
+      {
+        statement: `DELETE FROM take_flag
+          WHERE take_id IN (
+            SELECT t.take_id
+            FROM take t
+            JOIN shoot_day sd ON sd.shoot_day_id = t.shoot_day_id
+            WHERE sd.project_id = ?
+          )`,
+        values: [project_id],
+      },
+      {
+        statement: `DELETE FROM take
+          WHERE shoot_day_id IN (
+            SELECT shoot_day_id FROM shoot_day WHERE project_id = ?
+          )`,
+        values: [project_id],
+      },
+      {
+        statement: `DELETE FROM slate_scene
+          WHERE scene_id IN (
+            SELECT scene_id FROM scene WHERE project_id = ?
+          )
+          OR slate_id IN (
+            SELECT s.slate_id
+            FROM slate s
+            JOIN shoot_day sd ON sd.shoot_day_id = s.shoot_day_id
+            WHERE sd.project_id = ?
+          )`,
+        values: [project_id, project_id],
+      },
+      {
+        statement: `DELETE FROM roll WHERE project_id = ?`,
+        values: [project_id],
+      },
+      {
+        statement: `DELETE FROM slate
+          WHERE shoot_day_id IN (
+            SELECT shoot_day_id FROM shoot_day WHERE project_id = ?
+          )`,
+        values: [project_id],
+      },
+      {
+        statement: `DELETE FROM scene WHERE project_id = ?`,
+        values: [project_id],
+      },
+      {
+        statement: `DELETE FROM shoot_day WHERE project_id = ?`,
+        values: [project_id],
+      },
+      {
+        statement: `DELETE FROM project WHERE project_id = ?`,
+        values: [project_id],
+      },
+    ]);
+    await this.save_if_web();
+  }
+
   async list_shoot_days(project_id: string): Promise<ShootDay[]> {
     const result = await this.query<ShootDay>(`
       SELECT
         sd.*,
-        COUNT(s.slate_id) AS slate_count
+        COUNT(DISTINCT s.slate_id) AS slate_count,
+        COUNT(DISTINCT sc.scene_id) AS scene_count
       FROM shoot_day sd
       LEFT JOIN slate s ON s.shoot_day_id = sd.shoot_day_id
+      LEFT JOIN scene sc ON sc.shoot_day_id = sd.shoot_day_id
       WHERE sd.project_id = ?
       GROUP BY sd.shoot_day_id
       ORDER BY sd.date DESC, sd.created_at DESC
@@ -362,6 +557,50 @@ export class SlateDatabaseService {
     return this.query_one<ShootDay>('SELECT * FROM shoot_day WHERE shoot_day_id = ?', [shoot_day_id]);
   }
 
+  async delete_shoot_day(shoot_day_id: string): Promise<void> {
+    const db = await this.init();
+    await db.executeSet([
+      {
+        statement: `DELETE FROM take_flag
+          WHERE take_id IN (
+            SELECT take_id FROM take WHERE shoot_day_id = ?
+          )`,
+        values: [shoot_day_id],
+      },
+      {
+        statement: `DELETE FROM take WHERE shoot_day_id = ?`,
+        values: [shoot_day_id],
+      },
+      {
+        statement: `DELETE FROM slate_scene
+          WHERE scene_id IN (
+            SELECT scene_id FROM scene WHERE shoot_day_id = ?
+          )
+          OR slate_id IN (
+            SELECT slate_id FROM slate WHERE shoot_day_id = ?
+          )`,
+        values: [shoot_day_id, shoot_day_id],
+      },
+      {
+        statement: `DELETE FROM roll WHERE shoot_day_id = ?`,
+        values: [shoot_day_id],
+      },
+      {
+        statement: `DELETE FROM slate WHERE shoot_day_id = ?`,
+        values: [shoot_day_id],
+      },
+      {
+        statement: `DELETE FROM scene WHERE shoot_day_id = ?`,
+        values: [shoot_day_id],
+      },
+      {
+        statement: `DELETE FROM shoot_day WHERE shoot_day_id = ?`,
+        values: [shoot_day_id],
+      },
+    ]);
+    await this.save_if_web();
+  }
+
   async get_shoot_day_by_date(project_id: string, date: string): Promise<ShootDay | null> {
     return this.query_one<ShootDay>(
       `SELECT *
@@ -389,46 +628,64 @@ export class SlateDatabaseService {
   async list_reusable_slates(shoot_day_id: string): Promise<ReusableSlate[]> {
     return this.query<ReusableSlate>(`
       SELECT
-        s.camera,
+        ms.managed_slate_id,
+        ms.camera,
+        ms.bluetooth_device_id,
+        ms.bluetooth_device_name,
         (
-          SELECT previous_slate.bluetooth_device_id
-          FROM slate previous_slate
-          JOIN shoot_day previous_day ON previous_day.shoot_day_id = previous_slate.shoot_day_id
-          WHERE previous_day.project_id = sd.project_id
-          AND previous_slate.camera = s.camera COLLATE NOCASE
-          AND previous_slate.bluetooth_device_id IS NOT NULL
-          ORDER BY previous_day.date DESC, previous_slate.updated_at DESC
-          LIMIT 1
-        ) AS bluetooth_device_id,
+          SELECT MAX(sd.date)
+          FROM slate s
+          JOIN shoot_day sd ON sd.shoot_day_id = s.shoot_day_id
+          WHERE s.camera = ms.camera COLLATE NOCASE
+        ) AS last_used_date,
         (
-          SELECT previous_slate.bluetooth_device_name
-          FROM slate previous_slate
-          JOIN shoot_day previous_day ON previous_day.shoot_day_id = previous_slate.shoot_day_id
-          WHERE previous_day.project_id = sd.project_id
-          AND previous_slate.camera = s.camera COLLATE NOCASE
-          AND previous_slate.bluetooth_device_id IS NOT NULL
-          ORDER BY previous_day.date DESC, previous_slate.updated_at DESC
-          LIMIT 1
-        ) AS bluetooth_device_name,
-        MAX(sd.date) AS last_used_date,
-        COUNT(s.slate_id) AS usage_count
-      FROM slate s
-      JOIN shoot_day sd ON sd.shoot_day_id = s.shoot_day_id
-      WHERE sd.project_id = (
-        SELECT project_id
-        FROM shoot_day
-        WHERE shoot_day_id = ?
-      )
-      AND s.shoot_day_id != ?
-      AND NOT EXISTS (
+          SELECT COUNT(s.slate_id)
+          FROM slate s
+          WHERE s.camera = ms.camera COLLATE NOCASE
+        ) AS usage_count
+      FROM managed_slate ms
+      WHERE NOT EXISTS (
         SELECT 1
         FROM slate current_slate
         WHERE current_slate.shoot_day_id = ?
-        AND current_slate.camera = s.camera COLLATE NOCASE
+        AND current_slate.camera = ms.camera COLLATE NOCASE
       )
-      GROUP BY s.camera COLLATE NOCASE
-      ORDER BY s.camera COLLATE NOCASE ASC
-    `, [shoot_day_id, shoot_day_id, shoot_day_id]);
+      ORDER BY ms.camera COLLATE NOCASE ASC
+    `, [shoot_day_id]);
+  }
+
+  async create_managed_slate(input: {
+    camera: string;
+    bluetooth_device_id?: string | null;
+    bluetooth_device_name?: string | null;
+  }): Promise<string> {
+    const existing = await this.query_one<{ managed_slate_id: string }>(
+      `SELECT managed_slate_id
+       FROM managed_slate
+       WHERE camera = ? COLLATE NOCASE`,
+      [input.camera.trim()],
+    );
+
+    if (existing) {
+      return existing.managed_slate_id;
+    }
+
+    const now = timestamp();
+    const managed_slate_id = create_id('managed_slate');
+    await this.run(
+      `INSERT INTO managed_slate (
+        managed_slate_id, camera, bluetooth_device_id, bluetooth_device_name, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        managed_slate_id,
+        input.camera.trim(),
+        empty_to_null(input.bluetooth_device_id),
+        empty_to_null(input.bluetooth_device_name),
+        now,
+        now,
+      ],
+    );
+    return managed_slate_id;
   }
 
   async create_slate(input: {
@@ -436,7 +693,7 @@ export class SlateDatabaseService {
     camera: string;
     bluetooth_device_id?: string | null;
     bluetooth_device_name?: string | null;
-  }): Promise<void> {
+  }): Promise<string> {
     const existing = await this.query_one<{ slate_id: string }>(
       `SELECT slate_id
        FROM slate
@@ -446,24 +703,43 @@ export class SlateDatabaseService {
     );
 
     if (existing) {
-      return;
+      return existing.slate_id;
     }
 
+    const managed_slate = await this.query_one<{
+      bluetooth_device_id: string | null;
+      bluetooth_device_name: string | null;
+    }>(
+      `SELECT bluetooth_device_id, bluetooth_device_name
+       FROM managed_slate
+       WHERE camera = ? COLLATE NOCASE
+       LIMIT 1`,
+      [input.camera.trim()],
+    );
+    const bluetooth_device_id = input.bluetooth_device_id ?? managed_slate?.bluetooth_device_id ?? null;
+    const bluetooth_device_name = input.bluetooth_device_name ?? managed_slate?.bluetooth_device_name ?? null;
     const now = timestamp();
+    const slate_id = create_id('slate');
     await this.run(
       `INSERT INTO slate (
         slate_id, shoot_day_id, camera, bluetooth_device_id, bluetooth_device_name, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
-        create_id('slate'),
+        slate_id,
         input.shoot_day_id,
         input.camera.trim(),
-        empty_to_null(input.bluetooth_device_id),
-        empty_to_null(input.bluetooth_device_name),
+        empty_to_null(bluetooth_device_id),
+        empty_to_null(bluetooth_device_name),
         now,
         now,
       ],
     );
+    await this.create_managed_slate({
+      camera: input.camera,
+      bluetooth_device_id,
+      bluetooth_device_name,
+    });
+    return slate_id;
   }
 
   async update_slate(input: {
@@ -505,8 +781,308 @@ export class SlateDatabaseService {
     );
   }
 
+  async list_slate_connection_targets(): Promise<SlateConnectionTarget[]> {
+    return this.query<SlateConnectionTarget>(`
+      SELECT
+        ms.managed_slate_id,
+        ms.camera,
+        ms.bluetooth_device_id,
+        ms.bluetooth_device_name,
+        (
+          SELECT MAX(sd.date)
+          FROM slate s
+          JOIN shoot_day sd ON sd.shoot_day_id = s.shoot_day_id
+          WHERE s.camera = ms.camera COLLATE NOCASE
+        ) AS last_used_date,
+        (
+          SELECT COUNT(s.slate_id)
+          FROM slate s
+          WHERE s.camera = ms.camera COLLATE NOCASE
+        ) AS usage_count
+      FROM managed_slate ms
+      ORDER BY ms.camera COLLATE NOCASE ASC
+    `);
+  }
+
+  async update_slate_device_binding_by_camera(input: {
+    camera: string;
+    bluetooth_device_id: string | null;
+    bluetooth_device_name?: string | null;
+  }): Promise<void> {
+    await this.create_managed_slate({
+      camera: input.camera,
+      bluetooth_device_id: input.bluetooth_device_id,
+      bluetooth_device_name: input.bluetooth_device_name,
+    });
+    const now = timestamp();
+    const values = [
+      empty_to_null(input.bluetooth_device_id),
+      empty_to_null(input.bluetooth_device_name),
+      now,
+      input.camera.trim(),
+    ];
+    await this.run(
+      `UPDATE managed_slate
+       SET
+        bluetooth_device_id = ?,
+        bluetooth_device_name = ?,
+        updated_at = ?
+       WHERE camera = ? COLLATE NOCASE`,
+      values,
+    );
+    await this.run(
+      `UPDATE slate
+       SET
+        bluetooth_device_id = ?,
+        bluetooth_device_name = ?,
+        updated_at = ?
+       WHERE camera = ? COLLATE NOCASE`,
+      values,
+    );
+  }
+
   async get_slate(slate_id: string): Promise<Slate | null> {
     return this.query_one<Slate>('SELECT * FROM slate WHERE slate_id = ?', [slate_id]);
+  }
+
+  async delete_slate(slate_id: string): Promise<void> {
+    const db = await this.init();
+    await db.executeSet([
+      {
+        statement: `DELETE FROM take_flag
+          WHERE take_id IN (
+            SELECT take_id FROM take WHERE slate_id = ?
+          )`,
+        values: [slate_id],
+      },
+      {
+        statement: `DELETE FROM take WHERE slate_id = ?`,
+        values: [slate_id],
+      },
+      {
+        statement: `DELETE FROM slate_scene WHERE slate_id = ?`,
+        values: [slate_id],
+      },
+      {
+        statement: `DELETE FROM roll WHERE slate_id = ?`,
+        values: [slate_id],
+      },
+      {
+        statement: `DELETE FROM slate WHERE slate_id = ?`,
+        values: [slate_id],
+      },
+    ]);
+    await this.save_if_web();
+  }
+
+  async list_scenes_for_shoot_day(shoot_day_id: string): Promise<SceneSummary[]> {
+    return this.query<SceneSummary>(`
+      SELECT
+        sc.*,
+        COUNT(DISTINCT ss.slate_id) AS slate_count,
+        COUNT(DISTINCT t.take_id) AS take_count
+      FROM scene sc
+      LEFT JOIN slate_scene ss ON ss.scene_id = sc.scene_id AND ss.active = 1
+      LEFT JOIN take t ON t.slate_scene_id = ss.slate_scene_id
+      WHERE sc.shoot_day_id = ?
+      GROUP BY sc.scene_id
+      ORDER BY sc.created_at ASC, sc.scene_name COLLATE NOCASE ASC
+    `, [shoot_day_id]);
+  }
+
+  async create_scene(input: {
+    project_id: string;
+    shoot_day_id: string;
+    scene_name: string;
+    location?: string | null;
+    time_of_day?: string | null;
+    notes?: string | null;
+  }): Promise<string> {
+    const now = timestamp();
+    const scene_id = create_id('scene');
+    await this.run(
+      `INSERT INTO scene (
+        scene_id, project_id, shoot_day_id, scene_name, location, time_of_day, notes, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        scene_id,
+        input.project_id,
+        input.shoot_day_id,
+        input.scene_name.trim(),
+        empty_to_null(input.location),
+        empty_to_null(input.time_of_day),
+        empty_to_null(input.notes),
+        now,
+        now,
+      ],
+    );
+    return scene_id;
+  }
+
+  async update_scene(input: {
+    scene_id: string;
+    scene_name: string;
+    location?: string | null;
+    time_of_day?: string | null;
+    notes?: string | null;
+  }): Promise<void> {
+    await this.run(
+      `UPDATE scene
+       SET
+        scene_name = ?,
+        location = ?,
+        time_of_day = ?,
+        notes = ?,
+        updated_at = ?
+       WHERE scene_id = ?`,
+      [
+        input.scene_name.trim(),
+        empty_to_null(input.location),
+        empty_to_null(input.time_of_day),
+        empty_to_null(input.notes),
+        timestamp(),
+        input.scene_id,
+      ],
+    );
+  }
+
+  async get_scene(scene_id: string): Promise<SceneSummary | null> {
+    return this.query_one<SceneSummary>('SELECT * FROM scene WHERE scene_id = ?', [scene_id]);
+  }
+
+  async delete_scene(scene_id: string): Promise<void> {
+    const db = await this.init();
+    await db.executeSet([
+      {
+        statement: `DELETE FROM take_flag
+          WHERE take_id IN (
+            SELECT t.take_id
+            FROM take t
+            JOIN slate_scene ss ON ss.slate_scene_id = t.slate_scene_id
+            WHERE ss.scene_id = ?
+          )`,
+        values: [scene_id],
+      },
+      {
+        statement: `DELETE FROM take
+          WHERE slate_scene_id IN (
+            SELECT slate_scene_id FROM slate_scene WHERE scene_id = ?
+          )`,
+        values: [scene_id],
+      },
+      {
+        statement: `DELETE FROM slate_scene WHERE scene_id = ?`,
+        values: [scene_id],
+      },
+      {
+        statement: `DELETE FROM scene WHERE scene_id = ?`,
+        values: [scene_id],
+      },
+    ]);
+    await this.save_if_web();
+  }
+
+  async list_scene_slate_allocations(scene_id: string): Promise<SlateScene[]> {
+    return this.query<SlateScene>(`
+      SELECT
+        ss.*,
+        s.camera,
+        s.bluetooth_device_id,
+        s.bluetooth_device_name,
+        sc.shoot_day_id,
+        sc.scene_name,
+        sc.location,
+        sc.time_of_day,
+        sc.notes,
+        COUNT(t.take_id) AS take_count,
+        SUM(CASE WHEN t.slate_open_timecode IS NOT NULL AND t.slate_close_timecode IS NULL THEN 1 ELSE 0 END) AS open_take_count
+      FROM slate_scene ss
+      JOIN slate s ON s.slate_id = ss.slate_id
+      JOIN scene sc ON sc.scene_id = ss.scene_id
+      LEFT JOIN take t ON t.slate_scene_id = ss.slate_scene_id
+      WHERE ss.scene_id = ? AND ss.active = 1
+      GROUP BY ss.slate_scene_id
+      ORDER BY s.camera COLLATE NOCASE ASC
+    `, [scene_id]);
+  }
+
+  async list_unallocated_slates_for_scene(scene_id: string): Promise<Slate[]> {
+    return this.query<Slate>(`
+      SELECT s.*
+      FROM slate s
+      JOIN scene sc ON sc.shoot_day_id = s.shoot_day_id
+      WHERE sc.scene_id = ?
+      AND NOT EXISTS (
+        SELECT 1
+        FROM slate_scene ss
+        WHERE ss.scene_id = sc.scene_id
+        AND ss.slate_id = s.slate_id
+        AND ss.active = 1
+      )
+      ORDER BY s.camera COLLATE NOCASE ASC
+    `, [scene_id]);
+  }
+
+  async allocate_slate_to_scene(input: {
+    scene_id: string;
+    slate_id: string;
+  }): Promise<string> {
+    const existing = await this.query_one<{ slate_scene_id: string }>(
+      `SELECT slate_scene_id
+       FROM slate_scene
+       WHERE scene_id = ? AND slate_id = ?`,
+      [input.scene_id, input.slate_id],
+    );
+
+    if (existing) {
+      await this.run(
+        `UPDATE slate_scene
+         SET active = 1, updated_at = ?
+         WHERE slate_scene_id = ?`,
+        [timestamp(), existing.slate_scene_id],
+      );
+      return existing.slate_scene_id;
+    }
+
+    const now = timestamp();
+    const slate_scene_id = create_id('slate_scene');
+    await this.run(
+      `INSERT INTO slate_scene (
+        slate_scene_id, slate_id, scene_id, scene_order, active, created_at, updated_at
+      ) VALUES (?, ?, ?, 0, 1, ?, ?)`,
+      [slate_scene_id, input.slate_id, input.scene_id, now, now],
+    );
+    return slate_scene_id;
+  }
+
+  async create_slate_for_scene(input: {
+    scene_id: string;
+    camera: string;
+  }): Promise<string> {
+    const scene = await this.get_scene(input.scene_id);
+    if (!scene) {
+      throw new Error(`Cannot create slate for missing scene ${input.scene_id}`);
+    }
+
+    await this.create_slate({
+      shoot_day_id: scene.shoot_day_id,
+      camera: input.camera,
+    });
+    const slate = await this.query_one<Slate>(
+      `SELECT *
+       FROM slate
+       WHERE shoot_day_id = ? AND camera = ? COLLATE NOCASE
+       LIMIT 1`,
+      [scene.shoot_day_id, input.camera.trim()],
+    );
+    if (!slate) {
+      throw new Error(`Cannot allocate missing slate ${input.camera}`);
+    }
+
+    return this.allocate_slate_to_scene({
+      scene_id: input.scene_id,
+      slate_id: slate.slate_id,
+    });
   }
 
   async list_slate_scenes(slate_id: string): Promise<SlateScene[]> {
@@ -540,15 +1116,20 @@ export class SlateDatabaseService {
     const slate_scene_id = create_id('slate_scene');
     const db = await this.init();
     const next_order = await this.next_scene_order(input.slate_id);
+    const slate = await this.get_slate(input.slate_id);
+    if (!slate) {
+      throw new Error(`Cannot create scene for missing slate ${input.slate_id}`);
+    }
 
     await db.executeSet([
       {
         statement: `INSERT INTO scene (
-          scene_id, project_id, scene_name, location, time_of_day, notes, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          scene_id, project_id, shoot_day_id, scene_name, location, time_of_day, notes, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         values: [
           scene_id,
           input.project_id,
+          slate.shoot_day_id,
           input.scene_name.trim(),
           empty_to_null(input.location),
           empty_to_null(input.time_of_day),
@@ -612,6 +1193,28 @@ export class SlateDatabaseService {
     `, [slate_scene_id]);
   }
 
+  async delete_slate_scene(slate_scene_id: string): Promise<void> {
+    const db = await this.init();
+    await db.executeSet([
+      {
+        statement: `DELETE FROM take_flag
+          WHERE take_id IN (
+            SELECT take_id FROM take WHERE slate_scene_id = ?
+          )`,
+        values: [slate_scene_id],
+      },
+      {
+        statement: `DELETE FROM take WHERE slate_scene_id = ?`,
+        values: [slate_scene_id],
+      },
+      {
+        statement: `DELETE FROM slate_scene WHERE slate_scene_id = ?`,
+        values: [slate_scene_id],
+      },
+    ]);
+    await this.save_if_web();
+  }
+
   async list_takes(slate_scene_id: string): Promise<Take[]> {
     return this.query<Take>(`
       SELECT
@@ -646,6 +1249,18 @@ export class SlateDatabaseService {
       )
       ORDER BY r.roll_name COLLATE NOCASE ASC
     `, [slate_id]);
+  }
+
+  async list_rolls_for_project(project_id: string): Promise<Roll[]> {
+    return this.query<Roll>(`
+      SELECT
+        r.*,
+        mc.label AS card_label
+      FROM roll r
+      LEFT JOIN media_card mc ON mc.card_id = r.card_id
+      WHERE r.project_id = ?
+      ORDER BY r.roll_name COLLATE NOCASE ASC
+    `, [project_id]);
   }
 
   async create_roll(input: {
@@ -872,12 +1487,14 @@ export class SlateDatabaseService {
     return results;
   }
 
-  async get_next_take_number(slate_scene_id: string): Promise<number> {
+  async get_next_take_number(slate_scene_id: string, setup_suffix?: string | null): Promise<number> {
+    const normalized_setup_suffix = normalize_setup_suffix(setup_suffix) ?? '';
     const row = await this.query_one<{ next_take_number: number }>(
       `SELECT COALESCE(MAX(take_number), 0) + 1 AS next_take_number
        FROM take
-       WHERE slate_scene_id = ?`,
-      [slate_scene_id],
+       WHERE slate_scene_id = ?
+       AND COALESCE(setup_suffix, '') = ?`,
+      [slate_scene_id, normalized_setup_suffix],
     );
     return row?.next_take_number ?? 1;
   }
@@ -887,6 +1504,7 @@ export class SlateDatabaseService {
     roll_id?: string | null;
     clip_name?: string | null;
     take_number: number;
+    setup_suffix?: string | null;
     slate_open_timecode?: string | null;
     slate_close_timecode?: string | null;
     notes?: string | null;
@@ -919,12 +1537,13 @@ export class SlateDatabaseService {
         roll_id,
         clip_name,
         take_number,
+        setup_suffix,
         slate_open_timecode,
         slate_close_timecode,
         notes,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         take_id,
         context.shoot_day_id,
@@ -933,6 +1552,7 @@ export class SlateDatabaseService {
         empty_to_null(input.roll_id),
         clip_name,
         input.take_number,
+        normalize_setup_suffix(input.setup_suffix),
         empty_to_null(input.slate_open_timecode),
         empty_to_null(input.slate_close_timecode),
         empty_to_null(input.notes),
@@ -949,6 +1569,7 @@ export class SlateDatabaseService {
     roll_id?: string | null;
     clip_name?: string | null;
     take_number: number;
+    setup_suffix?: string | null;
     slate_open_timecode?: string | null;
     slate_close_timecode?: string | null;
     notes?: string | null;
@@ -960,6 +1581,7 @@ export class SlateDatabaseService {
         roll_id = ?,
         clip_name = ?,
         take_number = ?,
+        setup_suffix = ?,
         slate_open_timecode = ?,
         slate_close_timecode = ?,
         notes = ?,
@@ -969,6 +1591,7 @@ export class SlateDatabaseService {
         empty_to_null(input.roll_id),
         empty_to_null(input.clip_name),
         input.take_number,
+        normalize_setup_suffix(input.setup_suffix),
         empty_to_null(input.slate_open_timecode),
         empty_to_null(input.slate_close_timecode),
         empty_to_null(input.notes),
@@ -1009,6 +1632,20 @@ export class SlateDatabaseService {
     }
 
     await this.save_if_web();
+  }
+
+  async add_take_flag(input: {
+    take_id: string;
+    flag_id: string;
+  }): Promise<void> {
+    await this.run(
+      `INSERT OR IGNORE INTO take_flag (
+        take_id,
+        flag_id,
+        created_at
+      ) VALUES (?, ?, ?)`,
+      [input.take_id, input.flag_id, timestamp()],
+    );
   }
 
   private async update_roll_clip_counter(
@@ -1151,7 +1788,7 @@ export class SlateDatabaseService {
   async close_latest_open_take(input: {
     slate_scene_id: string;
     slate_close_timecode: string;
-  }): Promise<boolean> {
+  }): Promise<string | null> {
     const open_take = await this.query_one<{ take_id: string }>(
       `SELECT take_id
        FROM take
@@ -1163,7 +1800,7 @@ export class SlateDatabaseService {
     );
 
     if (!open_take) {
-      return false;
+      return null;
     }
 
     await this.run(
@@ -1178,13 +1815,12 @@ export class SlateDatabaseService {
         open_take.take_id,
       ],
     );
-    return true;
+    return open_take.take_id;
   }
 
   private async open_database(): Promise<SQLiteDBConnection> {
     if (Capacitor.getPlatform() === 'web') {
-      await customElements.whenDefined('jeep-sqlite');
-      await this.sqlite.initWebStore();
+      throw new Error('SQLite web storage has been removed. Run Digital Slate on iOS.');
     }
 
     const db = await this.sqlite.createConnection(
@@ -1201,13 +1837,39 @@ export class SlateDatabaseService {
       await db.execute(statement);
     }
 
+    await this.ensure_scene_shoot_day_column(db);
     await this.ensure_slate_device_columns(db);
+    await this.ensure_managed_slates(db);
     await this.ensure_take_context_columns(db);
     await this.repair_duplicate_clip_names(db);
     await db.executeSet(build_seed_default_flags_sql(timestamp()));
     this.database = db;
     await this.save_if_web();
     return db;
+  }
+
+  private async ensure_scene_shoot_day_column(db: SQLiteDBConnection): Promise<void> {
+    const table_info = await db.query(`PRAGMA table_info('scene')`);
+    const columns = new Set((table_info.values ?? []).map((row) => String(row['name'])));
+
+    if (!columns.has('shoot_day_id')) {
+      await db.execute(`ALTER TABLE scene ADD COLUMN shoot_day_id TEXT`);
+    }
+
+    await db.execute(`
+      UPDATE scene
+      SET shoot_day_id = (
+        SELECT s.shoot_day_id
+        FROM slate_scene ss
+        JOIN slate s ON s.slate_id = ss.slate_id
+        WHERE ss.scene_id = scene.scene_id
+        ORDER BY ss.created_at ASC
+        LIMIT 1
+      )
+      WHERE shoot_day_id IS NULL
+    `);
+
+    await db.execute(`CREATE INDEX IF NOT EXISTS idx_scene_shoot_day_id ON scene(shoot_day_id)`);
   }
 
   private async ensure_slate_device_columns(db: SQLiteDBConnection): Promise<void> {
@@ -1223,6 +1885,45 @@ export class SlateDatabaseService {
     }
 
     await db.execute(`CREATE INDEX IF NOT EXISTS idx_slate_bluetooth_device_id ON slate(bluetooth_device_id)`);
+  }
+
+  private async ensure_managed_slates(db: SQLiteDBConnection): Promise<void> {
+    await db.execute(`
+      INSERT OR IGNORE INTO managed_slate (
+        managed_slate_id,
+        camera,
+        bluetooth_device_id,
+        bluetooth_device_name,
+        created_at,
+        updated_at
+      )
+      SELECT
+        'managed_slate_' || lower(hex(randomblob(8))),
+        TRIM(s.camera),
+        (
+          SELECT bound_slate.bluetooth_device_id
+          FROM slate bound_slate
+          WHERE bound_slate.camera = s.camera COLLATE NOCASE
+          AND bound_slate.bluetooth_device_id IS NOT NULL
+          ORDER BY bound_slate.updated_at DESC
+          LIMIT 1
+        ),
+        (
+          SELECT bound_slate.bluetooth_device_name
+          FROM slate bound_slate
+          WHERE bound_slate.camera = s.camera COLLATE NOCASE
+          AND bound_slate.bluetooth_device_name IS NOT NULL
+          ORDER BY bound_slate.updated_at DESC
+          LIMIT 1
+        ),
+        MIN(s.created_at),
+        MAX(s.updated_at)
+      FROM slate s
+      WHERE TRIM(s.camera) != ''
+      GROUP BY s.camera COLLATE NOCASE
+    `);
+
+    await db.execute(`CREATE INDEX IF NOT EXISTS idx_managed_slate_bluetooth_device_id ON managed_slate(bluetooth_device_id)`);
   }
 
   private async ensure_take_context_columns(db: SQLiteDBConnection): Promise<void> {
@@ -1243,6 +1944,10 @@ export class SlateDatabaseService {
 
     if (!columns.has('clip_name')) {
       await db.execute(`ALTER TABLE take ADD COLUMN clip_name TEXT`);
+    }
+
+    if (!columns.has('setup_suffix')) {
+      await db.execute(`ALTER TABLE take ADD COLUMN setup_suffix TEXT`);
     }
 
     await this.ensure_roll_context_columns(db);
@@ -1270,9 +1975,96 @@ export class SlateDatabaseService {
 
     await db.execute(`CREATE INDEX IF NOT EXISTS idx_take_shoot_day_id ON take(shoot_day_id)`);
     await db.execute(`CREATE INDEX IF NOT EXISTS idx_take_slate_id ON take(slate_id)`);
+    await this.ensure_take_setup_unique_constraint(db);
     if (refreshed_columns.has('roll_id')) {
       await db.execute(`CREATE INDEX IF NOT EXISTS idx_take_roll_id ON take(roll_id)`);
       await this.migrate_roll_text_values(db, refreshed_columns);
+    }
+  }
+
+  private async ensure_take_setup_unique_constraint(db: SQLiteDBConnection): Promise<void> {
+    const table_sql = await db.query(`
+      SELECT sql
+      FROM sqlite_master
+      WHERE type = 'table'
+      AND name = 'take'
+      LIMIT 1
+    `);
+    const create_sql = String(table_sql.values?.[0]?.['sql'] ?? '');
+    const has_old_take_number_constraint = /UNIQUE\s*\(\s*shoot_day_id\s*,\s*slate_id\s*,\s*slate_scene_id\s*,\s*take_number\s*\)/i
+      .test(create_sql);
+
+    if (has_old_take_number_constraint) {
+      await this.rebuild_take_table_for_setup_unique_constraint(db);
+    }
+
+    await db.execute(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_take_number_by_setup
+      ON take(shoot_day_id, slate_id, slate_scene_id, take_number, COALESCE(setup_suffix, ''))
+    `);
+  }
+
+  private async rebuild_take_table_for_setup_unique_constraint(db: SQLiteDBConnection): Promise<void> {
+    await db.execute(`PRAGMA foreign_keys = OFF`);
+    try {
+      await db.execute(`DROP TABLE IF EXISTS take_next`);
+      await db.execute(`
+        CREATE TABLE take_next (
+          take_id TEXT PRIMARY KEY,
+          shoot_day_id TEXT NOT NULL,
+          slate_id TEXT NOT NULL,
+          slate_scene_id TEXT NOT NULL,
+          roll_id TEXT,
+          clip_name TEXT,
+          take_number INTEGER NOT NULL,
+          setup_suffix TEXT,
+          slate_open_timecode TEXT,
+          slate_close_timecode TEXT,
+          notes TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY (shoot_day_id) REFERENCES shoot_day(shoot_day_id) ON DELETE CASCADE,
+          FOREIGN KEY (slate_id) REFERENCES slate(slate_id) ON DELETE CASCADE,
+          FOREIGN KEY (slate_scene_id) REFERENCES slate_scene(slate_scene_id) ON DELETE CASCADE,
+          FOREIGN KEY (roll_id) REFERENCES roll(roll_id) ON DELETE SET NULL
+        )
+      `);
+      await db.execute(`
+        INSERT INTO take_next (
+          take_id,
+          shoot_day_id,
+          slate_id,
+          slate_scene_id,
+          roll_id,
+          clip_name,
+          take_number,
+          setup_suffix,
+          slate_open_timecode,
+          slate_close_timecode,
+          notes,
+          created_at,
+          updated_at
+        )
+        SELECT
+          take_id,
+          shoot_day_id,
+          slate_id,
+          slate_scene_id,
+          roll_id,
+          clip_name,
+          take_number,
+          setup_suffix,
+          slate_open_timecode,
+          slate_close_timecode,
+          notes,
+          created_at,
+          updated_at
+        FROM take
+      `);
+      await db.execute(`DROP TABLE take`);
+      await db.execute(`ALTER TABLE take_next RENAME TO take`);
+    } finally {
+      await db.execute(`PRAGMA foreign_keys = ON`);
     }
   }
 
@@ -1623,9 +2415,7 @@ export class SlateDatabaseService {
   }
 
   private async save_if_web(): Promise<void> {
-    if (Capacitor.getPlatform() === 'web') {
-      await this.sqlite.saveToStore('digital_slate');
-    }
+    return;
   }
 }
 
@@ -1634,6 +2424,11 @@ const timestamp = (): string => new Date().toISOString();
 const empty_to_null = (value: string | null | undefined): string | null => {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
+};
+
+const normalize_setup_suffix = (value: string | null | undefined): string | null => {
+  const trimmed = value?.trim().toUpperCase();
+  return trimmed && /^[A-Z]$/.test(trimmed) ? trimmed : null;
 };
 
 const increment_clip_name = (clip_name: string): string => {

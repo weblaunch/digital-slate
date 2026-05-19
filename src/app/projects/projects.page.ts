@@ -34,6 +34,29 @@ export class ProjectsPage implements OnInit {
     await this.open_project_form(project);
   }
 
+  async delete_project(event: Event, project: Project): Promise<void> {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const alert = await this.alert_controller.create({
+      header: 'Delete project?',
+      message: `This permanently removes "${project.name}" and all shoot days, slates, scenes, takes, flags on takes, rolls, and export data beneath it.`,
+      buttons: [
+        { text: 'Cancel', role: 'cancel' },
+        {
+          text: 'Delete',
+          role: 'destructive',
+          handler: async () => {
+            await this.database.delete_project(project.project_id);
+            await this.load_projects();
+          },
+        },
+      ],
+    });
+
+    await alert.present();
+  }
+
   private async open_project_form(project?: Project): Promise<void> {
     const is_editing = Boolean(project);
     const alert = await this.alert_controller.create({

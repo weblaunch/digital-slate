@@ -1,5 +1,9 @@
 import { Component, inject, OnDestroy, OnInit } from '@angular/core';
+import { Capacitor } from '@capacitor/core';
+import { Directory, Encoding, Filesystem } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
 import { ActivatedRoute } from '@angular/router';
+import { AlertController } from '@ionic/angular';
 import { Subscription } from 'rxjs';
 
 import {
@@ -9,6 +13,7 @@ import {
   SearchFilterType,
   SearchResult,
   ShootDay,
+  SlateConnectionTarget,
   SlateDatabaseService,
 } from '../services/slate-database.service';
 import {
@@ -42,17 +47,23 @@ export class FolderPage implements OnInit, OnDestroy {
   public export_shoot_day_id = '';
   public export_takes: ExportTake[] = [];
   public export_loading = false;
+  public export_sharing = false;
   public ble_status: SlateBleStatus = {
     state: 'idle',
     device_id: null,
     device_name: null,
+    connected_devices: [],
     last_error: null,
   };
   public ble_log: SlateBleLogEntry[] = [];
   public ble_service_uuid = slate_ble_service_uuid;
   public ble_event_characteristic_uuid = slate_ble_event_characteristic_uuid;
+  public slate_connection_targets: SlateConnectionTarget[] = [];
+  public slate_connection_targets_loading = false;
+  public new_managed_slate_name = '';
 
   private activatedRoute = inject(ActivatedRoute);
+  private alert_controller = inject(AlertController);
   private database = inject(SlateDatabaseService);
   private slate_ble = inject(SlateBleService);
   private ble_subscriptions: Subscription[] = [];
@@ -79,6 +90,8 @@ export class FolderPage implements OnInit, OnDestroy {
           this.ble_log = log;
         }),
       ];
+      await this.load_slate_connection_targets();
+      void this.reconnect_known_slates();
     }
   }
 
@@ -207,7 +220,15 @@ export class FolderPage implements OnInit, OnDestroy {
     await this.load_export_scope();
   }
 
-  download_export_csv(): void {
+  async share_export_csv(): Promise<void> {
+    await this.share_text_file(this.export_file_name('csv'), this.build_export_csv(), 'text/csv');
+  }
+
+  async share_export_json(): Promise<void> {
+    await this.share_text_file(this.export_file_name('json'), this.build_export_json(), 'application/json');
+  }
+
+  private build_export_csv(): string {
     const rows = this.export_takes.map((take) => this.export_take_row(take));
     const headers = [
       'project',
@@ -215,6 +236,7 @@ export class FolderPage implements OnInit, OnDestroy {
       'location',
       'camera',
       'scene',
+      'setup',
       'take',
       'reel',
       'card',
@@ -222,7 +244,7 @@ export class FolderPage implements OnInit, OnDestroy {
       'suggested_clip_name',
       'slate_open_tc',
       'slate_close_tc',
-      'trim_out_tc',
+      'trim_in_tc',
       'open_marker',
       'close_marker',
       'flags',
@@ -233,22 +255,35 @@ export class FolderPage implements OnInit, OnDestroy {
       ...rows.map((row) => headers.map((header) => csv_cell(row[header] ?? '')).join(',')),
     ].join('\n');
 
-    this.download_text_file(this.export_file_name('csv'), csv, 'text/csv;charset=utf-8');
+    return csv;
   }
 
-  download_export_json(): void {
+  private build_export_json(): string {
+    const project = this.export_projects.find((candidate) => candidate.project_id === this.export_project_id);
+    const shoot_day = this.export_shoot_days.find((candidate) => candidate.shoot_day_id === this.export_shoot_day_id);
     const payload = {
       exported_at: new Date().toISOString(),
       format: 'digital-slate-resolve-prep-v1',
+      project: project ? {
+        project_id: project.project_id,
+        name: project.name,
+        director: project.director ?? '',
+        dop: project.dop ?? '',
+        camera_op: project.camera_op ?? '',
+      } : null,
+      shoot_day: shoot_day ? {
+        shoot_day_id: shoot_day.shoot_day_id,
+        date: format_display_date(shoot_day.date),
+        location: shoot_day.location ?? '',
+      } : null,
       take_count: this.export_takes.length,
-      takes: this.export_takes.map((take) => this.export_take_row(take)),
+      takes: this.export_takes.map((take) => {
+        const { project: _project, ...row } = this.export_take_row(take);
+        return row;
+      }),
     };
 
-    this.download_text_file(
-      this.export_file_name('json'),
-      JSON.stringify(payload, null, 2),
-      'application/json;charset=utf-8',
-    );
+    return JSON.stringify(payload, null, 2);
   }
 
   export_count_label(): string {
@@ -276,8 +311,78 @@ export class FolderPage implements OnInit, OnDestroy {
     this.slate_ble.clear_log();
   }
 
+  async load_slate_connection_targets(): Promise<void> {
+    this.slate_connection_targets_loading = true;
+    this.slate_connection_targets = await this.database.list_slate_connection_targets();
+    this.slate_connection_targets_loading = false;
+  }
+
+  async reconnect_known_slates(): Promise<void> {
+    const device_ids = this.slate_connection_targets
+      .map((target) => target.bluetooth_device_id)
+      .filter((device_id): device_id is string => Boolean(device_id));
+    await this.slate_ble.reconnect_known_devices(device_ids);
+  }
+
+  async add_managed_slate(): Promise<void> {
+    if (!this.new_managed_slate_name.trim()) {
+      return;
+    }
+
+    await this.database.create_managed_slate({
+      camera: this.new_managed_slate_name,
+    });
+    this.new_managed_slate_name = '';
+    await this.load_slate_connection_targets();
+  }
+
+  async bind_connected_device_to_slate(camera: string): Promise<void> {
+    if (!this.ble_status.device_id) {
+      return;
+    }
+
+    await this.database.update_slate_device_binding_by_camera({
+      camera,
+      bluetooth_device_id: this.ble_status.device_id,
+      bluetooth_device_name: this.ble_status.device_name,
+    });
+    await this.load_slate_connection_targets();
+  }
+
+  async unbind_device_from_slate(camera: string): Promise<void> {
+    await this.database.update_slate_device_binding_by_camera({
+      camera,
+      bluetooth_device_id: null,
+      bluetooth_device_name: null,
+    });
+    await this.load_slate_connection_targets();
+  }
+
+  slate_target_device_label(target: SlateConnectionTarget): string {
+    return target.bluetooth_device_name || target.bluetooth_device_id || 'No device bound';
+  }
+
+  slate_target_connected(target: SlateConnectionTarget): boolean {
+    return this.ble_device_connected(target.bluetooth_device_id);
+  }
+
+  display_date(date: string | null | undefined): string {
+    return date ? format_display_date(date) : '';
+  }
+
+  export_take_timecode(take: ExportTake): string {
+    return take.slate_open_timecode || take.slate_close_timecode || 'No timecode';
+  }
+
+  export_suggested_clip_name(take: ExportTake): string {
+    const scene_name = take.scene_name.trim();
+    const suggested_scene_name = scene_name.toLowerCase().startsWith('sc') ? scene_name : `Sc${scene_name}`;
+    const setup_suffix = take.setup_suffix ?? '';
+    return `${suggested_scene_name}${setup_suffix} T${String(take.take_number).padStart(2, '0')}`;
+  }
+
   ble_connected(): boolean {
-    return this.ble_status.state === 'connected';
+    return this.ble_status.connected_devices.length > 0;
   }
 
   ble_busy(): boolean {
@@ -285,6 +390,10 @@ export class FolderPage implements OnInit, OnDestroy {
   }
 
   ble_state_label(): string {
+    if (this.ble_status.connected_devices.length > 1) {
+      return `${this.ble_status.connected_devices.length} slates connected`;
+    }
+
     const labels: Record<string, string> = {
       idle: 'Not connected',
       initializing: 'Initializing',
@@ -298,8 +407,17 @@ export class FolderPage implements OnInit, OnDestroy {
     return labels[this.ble_status.state] ?? this.ble_status.state;
   }
 
+  ble_device_connected(device_id: string | null | undefined): boolean {
+    if (!device_id) {
+      return false;
+    }
+
+    return this.ble_status.connected_devices.some((device) => device.device_id === device_id);
+  }
+
   private export_take_row(take: ExportTake): Record<string, string> {
-    const suggested_clip_name = `Sc${take.scene_name} T${String(take.take_number).padStart(2, '0')}`;
+    const setup_suffix = take.setup_suffix ?? '';
+    const suggested_clip_name = this.export_suggested_clip_name(take);
     const is_end_slate = (take.flag_ids ?? '').split(',').includes('end_slate');
     return {
       project: take.project_name,
@@ -307,6 +425,7 @@ export class FolderPage implements OnInit, OnDestroy {
       location: take.location ?? '',
       camera: take.camera,
       scene: take.scene_name,
+      setup: setup_suffix,
       take: String(take.take_number),
       reel: take.roll_name ?? '',
       card: take.card_label ?? '',
@@ -314,10 +433,10 @@ export class FolderPage implements OnInit, OnDestroy {
       suggested_clip_name,
       slate_open_tc: take.slate_open_timecode ?? '',
       slate_close_tc: take.slate_close_timecode ?? '',
-      trim_out_tc: is_end_slate ? '' : take.slate_close_timecode ?? '',
+      trim_in_tc: is_end_slate ? '' : take.slate_close_timecode ?? '',
       open_marker: take.slate_open_timecode ? 'Slate Open' : '',
-      close_marker: take.slate_close_timecode ? (is_end_slate ? 'End Slate' : 'Slate Close / Trim Out') : '',
-      flags: take.flags ?? '',
+      close_marker: take.slate_close_timecode ? (is_end_slate ? 'End Slate' : 'Slate Close / Trim In') : '',
+      flags: normalize_export_flags(take.flags),
       notes: take.notes ?? '',
     };
   }
@@ -342,6 +461,47 @@ export class FolderPage implements OnInit, OnDestroy {
     link.download = file_name;
     link.click();
     URL.revokeObjectURL(url);
+  }
+
+  private async share_text_file(file_name: string, content: string, mime_type: string): Promise<void> {
+    if (!Capacitor.isNativePlatform()) {
+      this.download_text_file(file_name, content, `${mime_type};charset=utf-8`);
+      return;
+    }
+
+    this.export_sharing = true;
+    try {
+      await Filesystem.writeFile({
+        path: file_name,
+        data: content,
+        directory: Directory.Cache,
+        encoding: Encoding.UTF8,
+      });
+      const file = await Filesystem.getUri({
+        path: file_name,
+        directory: Directory.Cache,
+      });
+
+      await Share.share({
+        title: file_name,
+        text: 'Digital Slate export',
+        url: file.uri,
+        dialogTitle: `Share ${file_name}`,
+      });
+    } catch (error) {
+      await this.show_export_error(error);
+    } finally {
+      this.export_sharing = false;
+    }
+  }
+
+  private async show_export_error(error: unknown): Promise<void> {
+    const alert = await this.alert_controller.create({
+      header: 'Export failed',
+      message: error instanceof Error ? error.message : String(error),
+      buttons: ['OK'],
+    });
+    await alert.present();
   }
 }
 
@@ -378,6 +538,14 @@ const format_context_dates = (value: string): string => {
 };
 
 const csv_cell = (value: string): string => `"${value.replace(/"/g, '""')}"`;
+
+const normalize_export_flags = (flags: string | null | undefined): string => {
+  return (flags ?? '')
+    .split(',')
+    .map((flag) => flag.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, ''))
+    .filter(Boolean)
+    .join(',');
+};
 
 const slug_part = (value: string): string => {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'export';
