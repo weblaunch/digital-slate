@@ -1,6 +1,8 @@
 # Digital Slate
 ## Before we dive in
 
+<img src="assets/photos/slate-front.jpg" alt="Digital Slate master, slave, slate and app" width="600">
+
 OK, before we get started, some honesty. This idea started with a blog by Jim Mack, and much kudos goes to him. You can read that post here:
 
 [Speed Reading LTC](https://escmdxi.wordpress.com/2022/08/16/speed-reading-ltc/)
