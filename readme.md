@@ -3,7 +3,7 @@
 
 OK, before we get started, some honesty. This idea started with a blog by Jim Mack, and much kudos goes to him. You can read that post here:
 
-[text](https://escmdxi.wordpress.com/2022/08/16/speed-reading-ltc/)
+[Speed Reading LTC](https://escmdxi.wordpress.com/2022/08/16/speed-reading-ltc/)
 
 I spent a LONG time modifying his sketches but could never get a workable product, probably due to my lack of knowledge truth be told. I gave up.
 
