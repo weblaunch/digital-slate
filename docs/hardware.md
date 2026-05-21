@@ -7,7 +7,7 @@ The system is comprised of 3 hardware units; the timecode transmitter, timecode 
 ### Transmitter (master)
 The transmitter ingests LTC timecode from a device such as an audio recorder, displays that timecode and transmits it to the other units.
 
-The transmitter requires some signal conditioning on the input:
+The transmitter requires some signal conditioning on the input (thanks to Jim Mack for this circuit):
 
 <img src="https://github.com/weblaunch/digital-slate/blob/main/assets/photos/tc_input_conditioning.webp?raw=true" alt="Input conditioning circuit">
 
